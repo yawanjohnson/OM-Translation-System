@@ -1,0 +1,32 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.venv/
+venv/
+ENV/
+env/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# User data directories
+uploads/*
+!uploads/.gitkeep
+outputs/*
+!outputs/.gitkeep
+data/*.db
+
+# Excel files in root (optional, uncomment if you want to ignore all Excel files)
+# *.xlsx
+
+# Editor configurations
+.vscode/
+.idea/
+
+# Temp/Backup files
+*.bak
+*.tmp

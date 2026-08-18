@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>OM 多語言管理系統 — 健身器材說明書工具</title>
+<meta name="description" content="IDML 自動修正、多語言資料庫搜尋與套用，專為平面設計師打造。"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/static/css/style.css"/>
+</head>
+<body>
+
+<!-- ═══ SIDEBAR ═══ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <span class="logo-icon">⚙</span>
+    <div class="logo-text">
+      <span class="logo-title">OM Tool</span>
+      <span class="logo-sub">多語言管理系統</span>
+    </div>
+  </div>
+
+  <nav class="sidebar-nav">
+    <button class="nav-item active" data-tab="patch" id="nav-patch">
+      <span class="nav-icon">✏️</span>
+      <span class="nav-label">IDML 修正</span>
+    </button>
+    <button class="nav-item" data-tab="database" id="nav-database">
+      <span class="nav-icon">🌐</span>
+      <span class="nav-label">多語言資料庫</span>
+    </button>
+    <button class="nav-item" data-tab="import" id="nav-import">
+      <span class="nav-icon">📥</span>
+      <span class="nav-label">匯入資料</span>
+    </button>
+    <button class="nav-item" data-tab="apply" id="nav-apply">
+      <span class="nav-icon">🔁</span>
+      <span class="nav-label">套用語言</span>
+    </button>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="lang-badge-list" id="lang-badges"></div>
+    <div class="sidebar-version">v1.0 · 19 語言支援</div>
+  </div>
+</aside>
+
+<!-- ═══ MAIN ═══ -->
+<main class="main">
+
+  <!-- ── TOP BAR ── -->
+  <header class="topbar">
+    <div class="topbar-title" id="topbar-title">IDML 自動修正</div>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost btn-sm" onclick="openModal('modal-pm-template')" title="下載 PM 修改指示範本">
+        📋 PM 範本
+      </button>
+      <button class="btn btn-ghost btn-sm" onclick="downloadDbTemplate()" title="下載翻譯 Excel 範本">
+        📄 翻譯範本
+      </button>
+      <div class="db-stats" id="db-stats-badge">
+        <span class="stat-dot"></span>
+        <span id="stats-count">—</span> 筆
+      </div>
+    </div>
+  </header>
+
+  <!-- ════════════════════════════════════ -->
+  <!-- TAB 1: IDML 修正                    -->
+  <!-- ════════════════════════════════════ -->
+  <section class="tab-content active" id="tab-patch">
+    <div class="two-col">
+
+      <!-- 左側：上傳區 -->
+      <div class="panel">
+        <h2 class="panel-title">① 上傳 IDML 檔案</h2>
+        <div class="dropzone" id="dz-idml"
+             ondragover="event.preventDefault();this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="handleDrop(event,'idml')">
+          <div class="dz-icon">📁</div>
+          <div class="dz-label">拖曳 IDML 到此，或點擊選擇</div>
+          <div class="dz-sub">.idml 格式</div>
+          <input type="file" id="input-idml" accept=".idml" style="display:none" onchange="uploadIdml(this)"/>
+          <button class="btn btn-outline btn-sm" onclick="document.getElementById('input-idml').click()">選擇檔案</button>
+        </div>
+        <div class="idml-info" id="idml-info" style="display:none">
+          <div class="info-row"><span class="info-label">檔案</span><span id="idml-filename" class="info-val mono">—</span></div>
+          <div class="info-row"><span class="info-label">Stories</span><span id="idml-stories" class="info-val">—</span></div>
+          <div class="info-row"><span class="info-label">版本</span><span id="idml-version" class="info-val">—</span></div>
+        </div>
+      </div>
+
+      <!-- 右側：上傳修改指示 -->
+      <div class="panel">
+        <h2 class="panel-title">② 上傳修改指示（Excel / CSV）</h2>
+        <div class="dropzone" id="dz-instr"
+             ondragover="event.preventDefault();this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="handleDrop(event,'instr')">
+          <div class="dz-icon">📋</div>
+          <div class="dz-label">拖曳修改指示檔案到此</div>
+          <div class="dz-sub">Excel / CSV · 欄位：語言代碼 / 找到原文 / 修改為 / 備註</div>
+          <input type="file" id="input-instr" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadInstructions(this)"/>
+          <button class="btn btn-outline btn-sm" onclick="document.getElementById('input-instr').click()">選擇檔案</button>
+        </div>
+        <div class="instr-summary" id="instr-summary" style="display:none">
+          <span class="tag tag-blue" id="instr-count-tag">0 條指示</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 指示預覽 -->
+    <div class="panel mt" id="instr-preview-panel" style="display:none">
+      <div class="panel-header">
+        <h2 class="panel-title mb0">修改指示預覽</h2>
+        <button class="btn btn-primary" id="btn-run-patch" onclick="runPatch()">
+          🚀 執行修正
+        </button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="instr-table">
+          <thead>
+            <tr>
+              <th style="width:60px">#</th>
+              <th style="width:90px">語言</th>
+              <th>找到原文</th>
+              <th>修改為</th>
+              <th style="width:140px">備註</th>
+              <th style="width:80px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="instr-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 結果區 -->
+    <div class="panel mt result-panel" id="patch-result-panel" style="display:none">
+      <div class="result-header">
+        <div class="result-summary">
+          <div class="result-stat success">
+            <span class="rs-num" id="res-success-count">0</span>
+            <span class="rs-label">處修改成功</span>
+          </div>
+          <div class="result-stat error" id="res-error-block">
+            <span class="rs-num" id="res-error-count">0</span>
+            <span class="rs-label">條未找到</span>
+          </div>
+        </div>
+        <div class="result-downloads">
+          <button class="btn btn-success" id="dl-idml-btn" onclick="downloadResult('idml')">
+            ⬇ 下載標記版 IDML
+          </button>
+          <button class="btn btn-warning" id="dl-excel-btn" onclick="downloadResult('excel')">
+            ⬇ 下載 Excel 報告
+          </button>
+          <button class="btn btn-verify" id="btn-verify" onclick="runVerify()" style="display:none">
+            🔍 驗證置換正確性
+          </button>
+          <button class="btn btn-pm" id="dl-pm-html-btn" onclick="generatePMReview()" style="display:none">
+            📋 產出 PM 確認頁
+          </button>
+          <button class="btn btn-outline" id="export-pdf-btn" onclick="exportRealPDF()" style="display:none; border-color:var(--accent-1); color:var(--accent-1)">
+            🖨 產生實際 PDF (透過 InDesign)
+          </button>
+        </div>
+      </div>
+
+      <!-- 未找到清單 -->
+      <div id="not-found-section" style="display:none">
+        <div class="section-divider">❌ 未找到的原文</div>
+        <div class="table-wrap">
+          <table class="data-table" id="not-found-table">
+            <thead><tr><th>#</th><th>語言</th><th>搜尋原文</th><th>預計修改為</th><th>備註</th></tr></thead>
+            <tbody id="not-found-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 成功清單 -->
+      <div id="success-section">
+        <div class="section-divider">✅ 修改成功清單</div>
+        <div class="table-wrap">
+          <table class="data-table" id="success-table">
+            <thead><tr><th>#</th><th>語言</th><th>原文</th><th>修改後</th><th>備註</th></tr></thead>
+            <tbody id="success-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 驗證結果區 -->
+      <div id="verify-section" style="display:none">
+        <div class="section-divider" id="verify-divider">🔍 置換驗證結果</div>
+        <div id="verify-summary" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"></div>
+        <div class="table-wrap">
+          <table class="data-table" id="verify-table">
+            <thead>
+              <tr>
+                <th style="width:50px">#</th>
+                <th style="width:80px">語言</th>
+                <th>原文（搜尋）</th>
+                <th>修改後文字</th>
+                <th style="width:80px">出現次數</th>
+                <th style="width:90px">驗證結果</th>
+                <th>備註</th>
+              </tr>
+            </thead>
+            <tbody id="verify-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    <!-- PM 回覆解析區 -->
+    <div class="panel mt" id="pm-reply-panel" style="display:none">
+      <h2 class="panel-title">📨 PM 回傳確認檔解析</h2>
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px">
+        PM 完成確認後會下載 <code style="color:var(--accent-1)">PM確認回覆_*.json</code>，上傳到此即可看到哪幾條需要重改。
+      </p>
+      <div class="dropzone sm" id="dz-pm-reply"
+           ondragover="event.preventDefault();this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')"
+           ondrop="handleDrop(event,'pm-reply')">
+        <input type="file" id="input-pm-reply" accept=".json" style="display:none" onchange="uploadPMReply(this)"/>
+        <div class="dz-icon">📨</div>
+        <div class="dz-label">上傳 PM 回傳的 JSON 檔案</div>
+        <button class="btn btn-outline btn-sm" onclick="document.getElementById('input-pm-reply').click()">選擇 JSON 檔案</button>
+      </div>
+      <div id="pm-reply-result" style="margin-top:14px"></div>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════ -->
+  <!-- TAB 2: 多語言資料庫                  -->
+  <!-- ════════════════════════════════════ -->
+  <section class="tab-content" id="tab-database">
+
+    <!-- 搜尋列 -->
+    <div class="search-bar-wrap">
+      <div class="search-bar">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="db-search-input" class="search-input"
+               placeholder="輸入任何語言的文字搜尋..." onkeyup="debounceSearch()"/>
+        <select id="db-search-lang" class="search-lang-select" onchange="searchDB()">
+          <option value="">全部語言</option>
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="searchDB()">搜尋</button>
+        <button class="btn btn-ghost btn-sm" onclick="clearSearch()">清除</button>
+      </div>
+      <div class="search-actions">
+        <button class="btn btn-primary btn-sm" onclick="openAddModal()">＋ 新增</button>
+        <button class="btn btn-ghost btn-sm" onclick="exportDB()">⬇ 匯出 Excel</button>
+      </div>
+    </div>
+
+    <!-- 統計列 -->
+    <div class="stats-row" id="stats-row"></div>
+
+    <!-- 資料表格 -->
+    <div class="panel" style="overflow:visible">
+      <div class="table-wrap db-table-wrap">
+        <table class="data-table db-table" id="db-table">
+          <thead id="db-thead"></thead>
+          <tbody id="db-tbody">
+            <tr><td colspan="99" class="empty-cell">載入中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- 分頁 -->
+      <div class="pagination" id="db-pagination"></div>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════ -->
+  <!-- TAB 3: 匯入資料                     -->
+  <!-- ════════════════════════════════════ -->
+  <section class="tab-content" id="tab-import">
+    <div class="import-grid">
+
+      <!-- Excel 匯入 -->
+      <div class="panel import-card">
+        <div class="import-card-icon">📊</div>
+        <h2 class="panel-title">匯入 Excel / CSV</h2>
+        <p class="import-desc">格式：A欄=ENG、B欄=GER... 橫向展開<br/>支援 .xlsx / .csv，自動識別欄位標題</p>
+        <div class="dropzone sm" id="dz-excel"
+             ondragover="event.preventDefault();this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="handleDrop(event,'excel-import')">
+          <input type="file" id="input-excel" accept=".xlsx,.xls,.csv" style="display:none" onchange="importExcel(this)"/>
+          <button class="btn btn-primary" onclick="document.getElementById('input-excel').click()">選擇 Excel / CSV</button>
+          <div class="dz-sub mt8">或拖曳到此</div>
+        </div>
+        <div class="import-result" id="excel-import-result"></div>
+      </div>
+
+      <!-- IDML 匯入 -->
+      <div class="panel import-card">
+        <div class="import-card-icon">📁</div>
+        <h2 class="panel-title">從 IDML 萃取文字</h2>
+        <p class="import-desc">上傳 InDesign 檔案，選擇語言代碼<br/>系統自動萃取所有段落文字</p>
+        <div class="import-lang-row">
+          <label class="form-label">此 IDML 的語言</label>
+          <select id="idml-import-lang" class="form-select">
+            <option value="">選擇語言...</option>
+          </select>
+        </div>
+        <div class="dropzone sm" id="dz-idml-import"
+             ondragover="event.preventDefault();this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="handleDrop(event,'idml-import')">
+          <input type="file" id="input-idml-import" accept=".idml" style="display:none" onchange="importIdmlPreview(this)"/>
+          <button class="btn btn-primary" onclick="document.getElementById('input-idml-import').click()">選擇 IDML</button>
+          <div class="dz-sub mt8">或拖曳到此</div>
+        </div>
+        <div class="import-result" id="idml-import-result"></div>
+        <!-- IDML 預覽確認 -->
+        <div id="idml-preview-section" style="display:none">
+          <div class="section-divider">預覽（前 50 筆）</div>
+          <div class="table-wrap" style="max-height:260px">
+            <table class="data-table">
+              <thead><tr><th>#</th><th>萃取文字</th><th>樣式</th></tr></thead>
+              <tbody id="idml-preview-tbody"></tbody>
+            </table>
+          </div>
+          <div class="confirm-row">
+            <input type="text" id="idml-import-product" class="form-input" placeholder="產品型號（選填）"/>
+            <button class="btn btn-primary" onclick="confirmIdmlImport()">✅ 確認匯入</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════ -->
+  <!-- TAB 4: 套用語言                     -->
+  <!-- ════════════════════════════════════ -->
+  <section class="tab-content" id="tab-apply">
+    <div class="panel apply-panel">
+      <h2 class="panel-title">從資料庫套用翻譯到 IDML</h2>
+      <p class="apply-desc">
+        上傳一份 ENG 版 IDML，系統從資料庫中自動比對英文原文，<br/>
+        替換為你指定的語言翻譯，產生標記版 IDML + Excel 報告。
+      </p>
+
+      <div class="apply-form">
+        <div class="form-group">
+          <label class="form-label">① 上傳 ENG 版 IDML</label>
+          <div class="dropzone sm" id="dz-apply"
+               ondragover="event.preventDefault();this.classList.add('drag-over')"
+               ondragleave="this.classList.remove('drag-over')"
+               ondrop="handleDrop(event,'apply')">
+            <input type="file" id="input-apply-idml" accept=".idml" style="display:none" onchange="uploadApplyIdml(this)"/>
+            <button class="btn btn-outline btn-sm" onclick="document.getElementById('input-apply-idml').click()">選擇 IDML</button>
+          </div>
+          <div class="idml-info" id="apply-idml-info" style="display:none">
+            <div class="info-row">
+              <span class="info-label">已上傳</span>
+              <span id="apply-idml-filename" class="info-val mono">—</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">② 選擇目標語言</label>
+          <div class="lang-selector" id="apply-lang-selector"></div>
+        </div>
+
+        <button class="btn btn-primary btn-lg" id="btn-apply-run" onclick="runApply()" disabled>
+          🔁 套用語言到 IDML
+        </button>
+      </div>
+
+      <div class="apply-result" id="apply-result" style="display:none">
+        <div class="result-header">
+          <div class="result-summary">
+            <div class="result-stat success">
+              <span class="rs-num" id="apply-success-count">0</span>
+              <span class="rs-label">段落已替換</span>
+            </div>
+            <div class="result-stat error">
+              <span class="rs-num" id="apply-notfound-count">0</span>
+              <span class="rs-label">段落未找到</span>
+            </div>
+          </div>
+          <div class="result-downloads">
+            <button class="btn btn-success" id="apply-dl-idml" onclick="downloadResult('apply-idml')">⬇ 下載 IDML</button>
+            <button class="btn btn-warning" id="apply-dl-excel" onclick="downloadResult('apply-excel')">⬇ 下載報告</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ═══ MODALS ═══ -->
+
+<!-- 新增/編輯翻譯 -->
+<div class="modal-overlay" id="modal-edit" style="display:none">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <h3 id="modal-edit-title">新增翻譯條目</h3>
+      <button class="modal-close" onclick="closeModal('modal-edit')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row-2">
+        <div class="form-group">
+          <label class="form-label">產品型號</label>
+          <input type="text" id="edit-product" class="form-input" placeholder="e.g. TR-500"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">章節</label>
+          <input type="text" id="edit-chapter" class="form-input" placeholder="e.g. Safety Warning"/>
+        </div>
+      </div>
+      <div class="lang-fields" id="lang-fields"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-edit')">取消</button>
+      <button class="btn btn-primary" onclick="saveEntry()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- PM 範本說明 -->
+<div class="modal-overlay" id="modal-pm-template" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>📋 PM 修改指示範本</h3>
+      <button class="modal-close" onclick="closeModal('modal-pm-template')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-desc">請 PM 使用以下 Excel 格式填寫修改指示，每一列代表一條修改：</p>
+      <table class="data-table" style="margin:16px 0">
+        <thead>
+          <tr><th>語言代碼</th><th>找到原文</th><th>修改為</th><th>備註</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="tag tag-blue">ENG</span></td>
+            <td class="mono">Do not use near water.</td>
+            <td class="text-green mono">Do not operate near water.</td>
+            <td>PM-001</td>
+          </tr>
+          <tr>
+            <td><span class="tag tag-orange">CHT</span></td>
+            <td class="mono">請勿在水邊使用。</td>
+            <td class="text-green mono">請勿在水邊操作。</td>
+            <td>PM-001</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="alert alert-info">
+        💡 <strong>重要：</strong>「找到原文」請直接從 InDesign 複製貼上，確保字元完全一致。
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="downloadPMTemplate()">⬇ 下載範本 Excel</button>
+      <button class="btn btn-ghost" onclick="closeModal('modal-pm-template')">關閉</button>
+    </div>
+  </div>
+</div>
+
+<!-- 載入中 Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- 全域 Loading Overlay -->
+<div class="loading-overlay" id="loading-overlay" style="display:none">
+  <div class="loading-box">
+    <div class="spinner"></div>
+    <div class="loading-text" id="loading-text">處理中...</div>
+  </div>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
