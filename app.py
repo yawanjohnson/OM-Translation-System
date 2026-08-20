@@ -276,7 +276,7 @@ def api_patch_upload_instructions():
             repl = row.get('replace') or row.get('REPLACE') or row.get('修改為') or row.get('修改後') or ''
             note = row.get('note') or row.get('NOTE') or row.get('備註') or ''
             if find and repl:
-                instructions.append({'lang_code': lang, 'find': find, 'replace': repl, 'note': note})
+                instructions.append({'lang_code': lang, 'find': find, 'replace': repl, 'note': note, 'mark_red': True})
 
         return jsonify({'ok': True, 'instructions': instructions, 'count': len(instructions)})
     except Exception as e:

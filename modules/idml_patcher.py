@@ -544,14 +544,60 @@ def _replace_in_paragraph(
                             if c not in content_chars:
                                 content_chars[c] = list(c.text or '')
 
-                    new_line_text = prefix + actual_replace + new_suffix
+                    # Check if colons exist in both core and actual_replace to preserve title/body split
+                    orig_colon_pos = core.find(':')
+                    if orig_colon_pos == -1:
+                        orig_colon_pos = core.find('：')
+                    
+                    repl_colon_pos = actual_replace.find(':')
+                    if repl_colon_pos == -1:
+                        repl_colon_pos = actual_replace.find('：')
 
-                    first_item = char_map[line_start]
-                    if first_item['index'] is not None:
-                        content_chars[first_item['content']][first_item['index']] = new_line_text
-                    for item in char_map[line_start + 1 : line_end]:
-                        if item['index'] is not None:
-                            content_chars[item['content']][item['index']] = ""
+                    split_success = False
+                    if orig_colon_pos != -1 and repl_colon_pos != -1:
+                        core_offset = len(prefix)
+                        orig_title_len = orig_colon_pos + 1
+                        body_start_idx = line_start + core_offset + orig_title_len
+                        
+                        first_item = char_map[line_start]
+                        next_style_idx = body_start_idx
+                        while next_style_idx < line_end and next_style_idx < len(char_map):
+                            if char_map[next_style_idx]['content'] != first_item['content']:
+                                break
+                            next_style_idx += 1
+                        
+                        if next_style_idx < line_end and next_style_idx < len(char_map):
+                            body_start_idx = next_style_idx
+                            
+                            replace_title = actual_replace[:repl_colon_pos + 1]
+                            replace_body = actual_replace[repl_colon_pos + 1:]
+                            
+                            new_title_text = prefix + replace_title
+                            new_body_text = replace_body + new_suffix
+                            
+                            body_first_item = char_map[body_start_idx]
+                            
+                            if first_item['index'] is not None and body_first_item['index'] is not None:
+                                content_chars[first_item['content']][first_item['index']] = new_title_text
+                                for item in char_map[line_start + 1 : body_start_idx]:
+                                    if item['index'] is not None:
+                                        content_chars[item['content']][item['index']] = ""
+                                
+                                content_chars[body_first_item['content']][body_first_item['index']] = new_body_text
+                                for item in char_map[body_start_idx + 1 : line_end]:
+                                    if item['index'] is not None:
+                                        content_chars[item['content']][item['index']] = ""
+                                
+                                split_success = True
+
+                    if not split_success:
+                        new_line_text = prefix + actual_replace + new_suffix
+                        first_item = char_map[line_start]
+                        if first_item['index'] is not None:
+                            content_chars[first_item['content']][first_item['index']] = new_line_text
+                        for item in char_map[line_start + 1 : line_end]:
+                            if item['index'] is not None:
+                                content_chars[item['content']][item['index']] = ""
 
                     for content, chars in content_chars.items():
                         content.text = "".join(chars)
