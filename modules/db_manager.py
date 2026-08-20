@@ -2,6 +2,7 @@
 db_manager.py - SQLite 多語言資料庫管理
 支援 19 語言代碼：ENG GER DUT DAN FRE SPA ITA GRK POL PRB RUS CHT JPN KOR VTM THI ARB TRK CHS
 """
+import re
 import sqlite3
 import os
 from datetime import datetime
@@ -35,11 +36,116 @@ LANG_NAMES = {
 }
 
 
+def clean_text(text: str) -> str:
+    """文字清洗規則：
+    1. 移除控制字元：\r, \n, \t 以及控制字元區間（\\x00-\\x1f）
+    1. 移除控制字元：\r, \n, \t 以及控制字元區間（\x00-\x1f）
+    2. 正規化排版空白：\u00a0, \u2028, \u2029, \u3000 轉為一般空格
+    3. 連續空格縮減：多個連續空格合併為單一空格，並清除前後端餘白
+    """
+    if not text:
+        return ''
+    text = str(text)
+    # 將 \r, \n, \t 轉為空格，並移除 \x00-\x1f 控制字元
+    text = re.sub(r'[\r\n\t]', ' ', text)
+    text = re.sub(r'[\x00-\x1f]', '', text)
+    # 轉換 NBSP, Unicode分行符和全形空白為普通空白
+    text = (text.replace('\u00a0', ' ')
+                .replace('\u2028', ' ')
+                .replace('\u2029', ' ')
+                .replace('\u3000', ' '))
+    # 合併多個連續空格為單一空格
+    text = re.sub(r' +', ' ', text)
+    # 清除首尾空白
+    return text.strip()
+
+
+def should_skip_translation(text: str) -> bool:
+    """過濾條件：若內容長度 <= 1 或為純數字/純符號，則跳過比對，避免誤替換符號或頁碼。"""
+    cleaned = clean_text(text)
+    if not cleaned:
+        return True
+    if len(cleaned) <= 1:
+        return True
+    # 判斷是否為純數字或符號 (去除正負號、小數點、逗號、百分號後，若只剩數字則當作純數字)
+    num_test = re.sub(r'[-+.,%\s]', '', cleaned)
+    if num_test.isdigit() or not num_test:
+        return True
+    return False
+
+
+def _normalize(text: str) -> str:
+    """比對用正規化"""
+    return clean_text(text)
+
+
+def split_prefix_suffix(text: str):
+    """將字串拆分為前綴符號、核心文字與尾綴符號。
+    例如："• Service should only be done..." -> ("• ", "Service should only be done...", "")
+          ": Do not remove..." -> (": ", "Do not remove...", "")
+          "WARNING:" -> ("", "WARNING", ":")
+          "□ Handlebar Set (30)" -> ("□ ", "Handlebar Set", " (30)")
+    """
+    if not text:
+        return '', '', ''
+    text_str = str(text)
+    # 匹配開頭的符號：空白、子彈點 (•, \u2022, \u2023, \u2043, \u2219)、星號 (*)、減號 (-)、冒號 (:)、點 (.)、常用符號如 □■○●✔✓
+    prefix_match = re.match(r'^([\s\u2022•\u2023\u2043\u2219*\-:\.□■○●✔✓]*)', text_str)
+    prefix = prefix_match.group(1) if prefix_match else ''
+    core_and_suffix = text_str[len(prefix):]
+    
+    # 1. 匹配結尾的標點與空白符號
+    suffix_match = re.search(r'([\s:\.]*)$', core_and_suffix)
+    suffix = suffix_match.group(1) if suffix_match else ''
+    
+    if suffix:
+        core = core_and_suffix[:-len(suffix)]
+    else:
+        core = core_and_suffix
+        
+    # 2. 匹配 core 尾端的零件/括號數字（例如 (30), (38L), (4,5) 等不需翻譯的零件編號或標籤）
+    paren_match = re.search(r'(\s*\([\d\s,a-zA-Z&/-]+\))$', core)
+    if paren_match:
+        paren_part = paren_match.group(1)
+        core = core[:-len(paren_part)]
+        suffix = paren_part + suffix
+        
+    return prefix, core, suffix
+
+
+def split_step_number(text: str) -> tuple[str, str] | None:
+    """
+    將步驟字串拆分為「基礎文字」與「末尾數字」。
+    例如："ASSEMBLY STEP 3" -> ("ASSEMBLY STEP", "3")
+          "STEP 12" -> ("STEP", "12")
+    """
+    match = re.match(r'^(.+?)\s+(\d+)$', text.strip())
+    if match:
+        return match.group(1).strip(), match.group(2).strip()
+    return None
+
+
 class DBManager:
     def __init__(self, db_path: str):
         self.db_path = db_path
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         self._init_db()
+
+    def _clean_row_translations(self, row) -> dict:
+        """
+        將回傳的資料庫字典中的各語言翻譯，自動剝離尾端的括號與零件編號（例如 (21R)、(11) 等），
+        以利動態套用 InDesign 端的零件代碼或保持無代碼狀態。
+        """
+        cleaned_row = dict(row)
+        for lang_col in cleaned_row.keys():
+            if lang_col == 'id' or lang_col == 'ENG':
+                continue
+            val = cleaned_row[lang_col]
+            if val and isinstance(val, str):
+                # 剝離尾端的括號編號，保留純翻譯主體
+                _, val_core, _ = split_prefix_suffix(val)
+                cleaned_row[lang_col] = val_core
+        return cleaned_row
 
     def _get_conn(self):
         conn = sqlite3.connect(self.db_path)
@@ -167,12 +273,119 @@ class DBManager:
             return [dict(r) for r in rows]
 
     def lookup_eng(self, eng_text: str) -> dict | None:
-        """用英文原文查詢一筆完整翻譯（精確比對）。"""
+        """
+        用英文原文查詢一筆完整翻譯。
+        比對規則：去除首尾標點/符號（Core 比對）+ 大小寫不敏感 + 空白正規化。
+        查詢成功回傳完整資料庫列，find 由呼叫方自行決定是用 IDML 原文還是 DB 版本。
+        """
+        normalized = _normalize(eng_text).lower()
+        if not normalized:
+            return None
+        # 取得搜尋文字的核心部分
+        _, search_core, _ = split_prefix_suffix(normalized)
+        search_core_norm = _normalize(search_core).lower()
+
         with self._get_conn() as conn:
-            row = conn.execute(
-                'SELECT * FROM translations WHERE "ENG" = ? LIMIT 1', (eng_text,)
-            ).fetchone()
-            return dict(row) if row else None
+            # 在 Python 層處理正規化（SQLite 的 LOWER() 對非 ASCII 支援有限）
+            rows = conn.execute(
+                'SELECT * FROM translations WHERE "ENG" != "" AND "ENG" IS NOT NULL'
+            ).fetchall()
+            for row in rows:
+                db_eng = row['ENG'] or ''
+                # 取得資料庫列的核心部分
+                _, db_core, _ = split_prefix_suffix(db_eng)
+                if _normalize(db_core).lower() == search_core_norm:
+                    return self._clean_row_translations(row)
+                    
+        # 2. 精準比對失敗時，嘗試進行步驟數字的動態匹配與套用
+        step_row = self.lookup_step_translation(eng_text)
+        if step_row:
+            return step_row
+
+        return None
+
+    def lookup_step_translation(self, eng_text: str) -> dict | None:
+        """
+        嘗試進行步驟數字的動態匹配與套用。
+        例如：InDesign 是 "ASSEMBLY STEP 3"，但 DB 只有 "ASSEMBLY STEP 1" -> "組裝步驟 1"。
+        系統會將所有目標語言中結尾的 "1" 替換成 "3"，產生新的動態翻譯字典。
+        """
+        res = split_step_number(eng_text)
+        if not res:
+            return None
+        search_base, search_num = res
+        search_base_norm = search_base.lower()
+
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                'SELECT * FROM translations WHERE "ENG" != "" AND "ENG" IS NOT NULL'
+            ).fetchall()
+            for row in rows:
+                db_eng = row['ENG'] or ''
+                db_res = split_step_number(db_eng)
+                if db_res:
+                    db_base, db_num = db_res
+                    if db_base.lower() == search_base_norm:
+                        # 複製整列資料，並針對每個語言欄位動態替換數字
+                        remapped_row = dict(row)
+                        remapped_row['id'] = f"{row['id']}-step-remap"
+                        remapped_row['ENG'] = eng_text
+                        
+                        for lang_col in remapped_row.keys():
+                            if lang_col == 'id' or lang_col == 'ENG':
+                                continue
+                            val = row[lang_col]
+                            if val and isinstance(val, str):
+                                val_res = split_step_number(val)
+                                if val_res:
+                                    val_base, val_num = val_res
+                                    if val_num == db_num:
+                                        remapped_row[lang_col] = val_base + " " + search_num
+                                        continue
+                                if val.endswith(db_num):
+                                    remapped_row[lang_col] = val[:-len(db_num)] + search_num
+                        return remapped_row
+        return None
+
+    def find_similar_eng(self, eng_text: str, threshold: float = 0.85) -> dict | None:
+        """
+        在資料庫中比對尋找與給定英文原文「最相似」的條目（模糊比對，排除 100% 完全相同者）。
+        用於主動抓出 InDesign 原文中的拼字錯誤（Typo）。
+        """
+        import difflib
+        normalized = _normalize(eng_text).lower()
+        if not normalized:
+            return None
+        # 取得搜尋文字的核心部分
+        _, search_core, _ = split_prefix_suffix(normalized)
+        search_core_norm = _normalize(search_core).lower()
+
+        best_match = None
+        best_ratio = 0.0
+
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                'SELECT * FROM translations WHERE "ENG" != "" AND "ENG" IS NOT NULL'
+            ).fetchall()
+            for row in rows:
+                db_eng = row['ENG'] or ''
+                # 取得資料庫列的核心部分
+                _, db_core, _ = split_prefix_suffix(db_eng)
+                db_core_norm = _normalize(db_core).lower()
+                
+                # 計算字串相似比率
+                ratio = difflib.SequenceMatcher(None, search_core_norm, db_core_norm).ratio()
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_match = row
+
+        # 相似度在 [threshold, 0.999] 區間內，判定為疑似錯字/極相似句型
+        if best_match and threshold <= best_ratio < 0.999:
+            res = dict(best_match)
+            res['similarity'] = best_ratio
+            return res
+        return None
+
 
     def bulk_upsert(self, rows: list) -> dict:
         """

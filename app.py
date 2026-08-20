@@ -19,7 +19,7 @@ DB_PATH     = os.path.join(DATA_DIR, 'translations.db')
 for d in (UPLOAD_DIR, OUTPUT_DIR, DATA_DIR):
     os.makedirs(d, exist_ok=True)
 
-from modules.db_manager import DBManager, LANG_CODES, LANG_NAMES
+from modules.db_manager import DBManager, LANG_CODES, LANG_NAMES, should_skip_translation, clean_text, split_prefix_suffix
 from modules.idml_patcher import patch_idml
 from modules.idml_parser import extract_stories, get_idml_info, extract_layout
 from modules.importers.excel_importer import import_excel, generate_template
@@ -512,14 +512,21 @@ def api_apply_run():
     if not os.path.exists(idml_path):
         return jsonify({'ok': False, 'error': '找不到 IDML，請重新上傳'}), 400
 
-    # 從 IDML 萃取 ENG 文字
+    # 從 IDML 萃取 ENG 文字，支援軟換行（以 \n 分割後單獨比對），拆分前綴與尾綴後過濾噪點
     stories = extract_stories(idml_path)
     eng_texts = set()
     for story in stories:
         for para in story['paragraphs']:
-            t = para['text'].strip()
-            if t:
-                eng_texts.add(t)
+            # 支援軟換行與特殊換行字元分割
+            parts = para['text'].replace('\r', '\n').replace('\u2028', '\n').replace('\u2029', '\n').split('\n')
+            for part in parts:
+                t = clean_text(part)
+                if t:
+                    prefix, core, suffix = split_prefix_suffix(t)
+                    core_cleaned = clean_text(core)
+                    if core_cleaned:
+                        if not should_skip_translation(core_cleaned):
+                            eng_texts.add(core_cleaned)
 
     # 查詢資料庫建立替換指示
     instructions = []
@@ -529,20 +536,38 @@ def api_apply_run():
         if row and row.get(lang):
             has_any_translation = True
             instructions.append({
-                'lang_code': lang,
-                'find':      eng_text,
-                'replace':   row[lang],
-                'note':      f'DB auto-apply',
-                'mark_red':  False,
+                'lang_code':   lang,
+                'find':        eng_text,
+                'replace':     row[lang],
+                'note':        'DB auto-apply',
+                'mark_red':    False,   # 黑色：成功套用翻譯
+                'mark_green':  False,
+                'exact_match': True,    # 只匹配完整段落，防止子字串誤改
             })
         else:
-            instructions.append({
-                'lang_code': lang,
-                'find':      eng_text,
-                'replace':   eng_text,
-                'note':      f'DB Translation Missing (Marked Red)',
-                'mark_red':  True,
-            })
+            similar_row = db.find_similar_eng(eng_text)
+            if similar_row:
+                sim_pct = int(similar_row['similarity'] * 100)
+                instructions.append({
+                    'lang_code':   lang,
+                    'find':        eng_text,
+                    'replace':     eng_text,
+                    'note':        f'DB Similar Found (ID: {similar_row["id"]}, Similarity: {sim_pct}%): {similar_row["ENG"]}',
+                    'mark_red':    False,
+                    'mark_green':  False,
+                    'mark_orange': True,     # 橘色：疑似錯字/相似句型
+                    'exact_match': True,     # 只匹配完整段落，防止子字串誤改
+                })
+            else:
+                instructions.append({
+                    'lang_code':   lang,
+                    'find':        eng_text,
+                    'replace':     eng_text,
+                    'note':        'DB Translation Missing (Green)',
+                    'mark_red':    False,
+                    'mark_green':  True,    # 綠色：翻譯缺失，保留英文
+                    'exact_match': True,    # 只匹配完整段落，防止子字串誤改
+                })
 
     if not has_any_translation:
         return jsonify({'ok': False, 'error': f'資料庫中找不到對應的 {lang} 翻譯'}), 400
@@ -556,9 +581,9 @@ def api_apply_run():
         result = patch_idml(idml_path, instructions, out_idml, out_excel)
         layout = extract_layout(out_idml)
         
-        # 計算成功替換與翻譯缺失（紅字標記）的統計數字
-        applied_count = sum(c.get('count', 1) for c in result['changes'] if not c.get('mark_red', False))
-        missing_count = sum(c.get('count', 1) for c in result['changes'] if c.get('mark_red', False))
+        # 計算成功替換與翻譯缺失（綠字標記）的統計數字
+        applied_count = sum(c.get('count', 1) for c in result['changes'] if not c.get('mark_green', False) and not c.get('mark_red', False) and not c.get('mark_orange', False))
+        missing_count = sum(c.get('count', 1) for c in result['changes'] if c.get('mark_green', False))
 
         return jsonify({
             'ok': True,

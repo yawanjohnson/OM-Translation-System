@@ -45,11 +45,11 @@ def _parse_story_xml(xml_bytes: bytes, story_name: str) -> dict:
     for psr in story_elem.iter():
         if _local(psr.tag) != 'ParagraphStyleRange':
             continue
+        style = psr.get('AppliedParagraphStyle', '')
+        if '/' in style:
+            style = style.split('/')[-1]
         para_text = _get_paragraph_text(psr)
         if para_text.strip():
-            style = psr.get('AppliedParagraphStyle', '')
-            if '/' in style:
-                style = style.split('/')[-1]
             paragraphs.append({'text': para_text, 'style': style})
     return {'story_id': story_id, 'story_file': story_name, 'paragraphs': paragraphs}
 
