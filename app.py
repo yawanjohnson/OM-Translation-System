@@ -41,7 +41,11 @@ def allowed(filename, exts):
 def save_upload(file, exts) -> str:
     if not allowed(file.filename, exts):
         raise ValueError(f'不支援的檔案格式：{file.filename}')
-    name = f'{uuid.uuid4().hex}_{secure_filename(file.filename)}'
+    base, ext = os.path.splitext(file.filename)
+    sec_base = secure_filename(base)
+    if not sec_base:
+        sec_base = 'file'
+    name = f'{uuid.uuid4().hex}_{sec_base}{ext.lower()}'
     path = os.path.join(UPLOAD_DIR, name)
     file.save(path)
     return path

@@ -115,7 +115,7 @@ function initApplyLangSelector() {
 // TAB 切換
 // ──────────────────────────────────────────────────────
 const TAB_TITLES = {
-  patch:    'IDML 自動修正',
+  patch:    'OM Content Updates',
   database: '多語言資料庫',
   import:   '匯入資料',
   apply:    '套用語言到 IDML',
