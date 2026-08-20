@@ -30,3 +30,18 @@ data/*.db
 # Temp/Backup files
 *.bak
 *.tmp
+
+# Environments & Secrets
+.env
+.env.*
+*.env
+*.env.*
+*.pem
+*.key
+*.cert
+*credential*
+*secret*
+*token*
+*password*
+*private*
+
