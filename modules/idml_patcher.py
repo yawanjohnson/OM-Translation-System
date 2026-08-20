@@ -659,14 +659,60 @@ def _replace_in_paragraph(
         first_content = first_item['content']
         first_idx = first_item['index']
 
-        if first_idx is not None:
-            content_chars[first_content][first_idx] = replace
-            if first_item['csr'] is not None:
-                marked_csrs.add(first_item['csr'])
+        # Check if colons exist in both effective_find and replace to preserve title/body split
+        orig_colon_pos = effective_find.find(':')
+        if orig_colon_pos == -1:
+            orig_colon_pos = effective_find.find('：')
+        
+        repl_colon_pos = replace.find(':')
+        if repl_colon_pos == -1:
+            repl_colon_pos = replace.find('：')
 
-        for item in match_items[1:]:
-            if item['index'] is not None:
-                content_chars[item['content']][item['index']] = ""
+        split_success = False
+        if orig_colon_pos != -1 and repl_colon_pos != -1:
+            orig_title_len = orig_colon_pos + 1
+            body_start_idx = idx + orig_title_len
+            
+            next_style_idx = body_start_idx
+            while next_style_idx < idx + len(effective_find) and next_style_idx < len(char_map):
+                if char_map[next_style_idx]['content'] != first_content:
+                    break
+                next_style_idx += 1
+                
+            if next_style_idx < idx + len(effective_find) and next_style_idx < len(char_map):
+                body_start_idx = next_style_idx
+                replace_title = replace[:repl_colon_pos + 1]
+                replace_body = replace[repl_colon_pos + 1:]
+                
+                body_first_item = char_map[body_start_idx]
+                
+                if first_idx is not None and body_first_item['index'] is not None:
+                    content_chars[first_content][first_idx] = replace_title
+                    for item in match_items[1 : body_start_idx - idx]:
+                        if item['index'] is not None:
+                            content_chars[item['content']][item['index']] = ""
+                    
+                    content_chars[body_first_item['content']][body_first_item['index']] = replace_body
+                    for item in match_items[body_start_idx - idx + 1 :]:
+                        if item['index'] is not None:
+                            content_chars[item['content']][item['index']] = ""
+                    
+                    if first_item['csr'] is not None:
+                        marked_csrs.add(first_item['csr'])
+                    if body_first_item['csr'] is not None:
+                        marked_csrs.add(body_first_item['csr'])
+                        
+                    split_success = True
+
+        if not split_success:
+            if first_idx is not None:
+                content_chars[first_content][first_idx] = replace
+                if first_item['csr'] is not None:
+                    marked_csrs.add(first_item['csr'])
+
+            for item in match_items[1:]:
+                if item['index'] is not None:
+                    content_chars[item['content']][item['index']] = ""
 
     for content, char_dict in content_chars.items():
         sorted_indices = sorted(char_dict.keys())
