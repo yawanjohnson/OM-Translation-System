@@ -587,17 +587,22 @@
       .gallery-pill-delete:hover {
         color: var(--error);
       }
-      .clear-col-btn {
-        margin-left: 6px;
+      .header-action-btn {
+        margin-left: 5px;
         cursor: pointer;
         opacity: 0.6;
         transition: opacity 0.15s, transform 0.15s;
         font-size: 11px;
         display: inline-block;
       }
-      .clear-col-btn:hover {
+      .header-action-btn:hover {
         opacity: 1;
         transform: scale(1.2);
+      }
+      .header-action-btn.populate-btn:hover {
+        color: var(--accent);
+      }
+      .header-action-btn.clear-btn:hover {
         color: var(--error);
       }
       .pdf-para-textarea {
@@ -659,7 +664,6 @@
           <h3 id="extract-viewer-title">📄 檔案預覽 (未上傳)</h3>
           <div style="display: flex; align-items: center; gap: 10px;">
             <button class="btn btn-ghost btn-sm" id="extract-undo-btn" onclick="undoExtractMerge()" style="display: none; padding: 2px 8px; color: var(--warning); border: 1px solid rgba(255, 165, 0, 0.3); border-radius: 4px; font-size: 11px;">↩ 復原上一步 (Undo)</button>
-            <button class="btn btn-ghost btn-sm" id="extract-repopulate-btn" onclick="alignExtractDataToTable()" style="display: none; padding: 2px 8px; color: var(--accent); border: 1px solid rgba(0, 102, 255, 0.3); border-radius: 4px; font-size: 11px;">📥 重新填入表格 (Repopulate)</button>
             <div id="extract-page-controls" style="display: none; align-items: center; gap: 8px;">
               <button class="btn btn-ghost btn-sm" onclick="prevExtractPage()" style="padding: 2px 8px;">◀</button>
               <span id="extract-page-num" style="font-size: 13px; font-weight: bold;">第 1 頁 / 1 頁</span>

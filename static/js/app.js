@@ -1554,9 +1554,6 @@ function updateExtractBlockText(index, newText) {
       extractState.ocrBlocks = file.ocrBlocks;
     }
   }
-  
-  // Real-time synchronization
-  alignExtractDataToTable();
 }
 
 // Delete a preview card (click on X button)
@@ -1579,7 +1576,6 @@ function deleteExtractBlock(index) {
     }
   }
   
-  alignExtractDataToTable();
   renderExtractPreview();
   showToast('🗑️ 已刪除該提取段落！', 'info');
 }
@@ -1781,14 +1777,13 @@ function renderExtractLangCheckboxes() {
   });
 }
 
-// Update Table headers dynamically
 function updateExtractTableHeader() {
   const row = document.getElementById('extract-table-header-row');
   if (!row) return;
   row.innerHTML = `
     <th style="width: 35px; text-align: center;"><input type="checkbox" id="extract-select-all" checked onchange="toggleSelectAllExtract(this)"/></th>
-    <th id="extract-header-eng">英文原文 (ENG) <span class="clear-col-btn" onclick="clearExtractColumn('ENG')" title="清空此欄">🧹</span></th>
-    ${extractState.visibleLangs.map(code => `<th>${LANG_NAMES[code] || code} (${code}) <span class="clear-col-btn" onclick="clearExtractColumn('${code}')" title="清空此欄">🧹</span></th>`).join('')}
+    <th id="extract-header-eng">英文原文 (ENG) <span class="header-action-btn populate-btn" onclick="populateExtractColumn('ENG')" title="將左側整理好的文字填入此欄">📥</span> <span class="header-action-btn clear-btn" onclick="clearExtractColumn('ENG')" title="清空此欄所有文字">🧹</span></th>
+    ${extractState.visibleLangs.map(code => `<th>${LANG_NAMES[code] || code} (${code}) <span class="header-action-btn populate-btn" onclick="populateExtractColumn('${code}')" title="將左側整理好的文字填入此欄">📥</span> <span class="header-action-btn clear-btn" onclick="clearExtractColumn('${code}')" title="清空此欄所有文字">🧹</span></th>`).join('')}
     <th style="width: 50px; text-align: center; white-space: nowrap;">操作</th>
   `;
 }
@@ -2088,7 +2083,6 @@ async function processSingleExtractFile(file) {
     };
     
     switchActiveExtractFile(fileId);
-    alignExtractDataToTable();
     
   } else if (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg')) {
     const imageSrc = await new Promise((resolve) => {
@@ -2112,7 +2106,6 @@ async function processSingleExtractFile(file) {
     };
     
     switchActiveExtractFile(fileId);
-    alignExtractDataToTable();
   }
 }
 
@@ -2139,33 +2132,39 @@ function extractKeywords(text) {
   return keywords;
 }
 
-// Align new data blocks to existing rows automatically based on keywords matching
-function alignExtractDataToTable() {
-  const autoPop = document.getElementById('extract-auto-populate');
-  if (!autoPop || !autoPop.checked) return;
-  
-  let blocks = [];
-  let langCode = 'ENG';
-  
-  if (extractState.fileType === 'pdf') {
-    const pageData = extractState.pdfPages[extractState.currentPage - 1];
-    if (pageData) {
-      blocks = pageData.paragraphs.map(p => ({ text: p }));
-      langCode = pageData.detected_lang || 'ENG';
-    }
-  } else if (extractState.fileType === 'image') {
-    blocks = extractState.ocrBlocks;
-    langCode = extractState.ocrDetectedLang || 'ENG';
+// Manually align and populate active file's left text cards into the target language column
+function populateExtractColumn(langCode) {
+  const fileId = extractState.activeFileId;
+  if (!fileId) {
+    showToast('⚠️ 請先在上方上傳或切換至欲填入的語系檔案！', 'warning');
+    return;
   }
+  const file = extractState.uploadedFiles[fileId];
+  if (!file) return;
   
-  if (blocks.length === 0) return;
+  saveExtractHistory();
   
-  // Enable column if not visible
+  // Enable column checkbox if not already visible
   if (!extractState.visibleLangs.includes(langCode) && langCode !== 'ENG') {
     extractState.visibleLangs.push(langCode);
     updateExtractTableHeader();
     renderExtractLangCheckboxes();
     updateAutoPopulateLangOptions();
+  }
+  
+  let blocks = [];
+  if (file.fileType === 'pdf') {
+    const pageData = file.pdfPages[extractState.currentPage - 1];
+    if (pageData) {
+      blocks = pageData.paragraphs.map(p => ({ text: p }));
+    }
+  } else if (file.fileType === 'image') {
+    blocks = file.ocrBlocks;
+  }
+  
+  if (blocks.length === 0) {
+    showToast('⚠️ 當前檔案無可用的文字段落可供填入！', 'warning');
+    return;
   }
   
   const currentRows = getExtractTableRowsData();
@@ -2178,7 +2177,8 @@ function alignExtractDataToTable() {
     const text = block.text;
     let matchedIdx = -1;
     
-    if (alignedRows.length > 0) {
+    // For non-ENG columns, we align using keyword matches against the ENG column
+    if (langCode !== 'ENG' && alignedRows.length > 0) {
       const keywords = extractKeywords(text);
       for (let i = 0; i < alignedRows.length; i++) {
         const engText = (alignedRows[i]['ENG'] || '').toUpperCase();
@@ -2204,7 +2204,7 @@ function alignExtractDataToTable() {
     addExtractRow(row);
   });
   
-  hideLoading();
+  showToast(`📥 已將當前檔案文字成功填入 ${langCode} 直欄！`, 'success');
 }
 
 // Render Preview Area
@@ -2403,7 +2403,6 @@ function mergeExtractBlockWithNext(index) {
     }
   }
   
-  alignExtractDataToTable();
   renderExtractPreview();
 }
 
