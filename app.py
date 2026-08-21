@@ -887,6 +887,21 @@ try:
 except ImportError:
     pass
 
+def clean_and_validate_extracted_text(text):
+    import re
+    if not text:
+        return None
+    text = text.strip()
+    # Must contain at least one Latin, accented European, or Chinese character
+    if not re.search(r'[a-zA-Z\u00C0-\u024F\u4e00-\u9fff]', text):
+        return None
+    # Strip leading bullets, layout decorations, and common list items
+    cleaned = re.sub(r'^[•▪▲⏰■○●□◇◆▫★☆☞☞▶▷➔➜\-\*\+•\s]+', '', text)
+    cleaned = cleaned.strip()
+    if not cleaned:
+        return None
+    return cleaned
+
 @app.route('/api/extract/pdf', methods=['POST'])
 def api_extract_pdf():
     if 'file' not in request.files:
@@ -933,9 +948,15 @@ def api_extract_pdf():
             if current:
                 paragraphs.append(current)
                 
+            cleaned_paragraphs = []
+            for p in paragraphs:
+                cleaned = clean_and_validate_extracted_text(p)
+                if cleaned:
+                    cleaned_paragraphs.append(cleaned)
+                
             pages_data.append({
                 'page': i + 1,
-                'paragraphs': paragraphs
+                'paragraphs': cleaned_paragraphs
             })
             
         return jsonify({
@@ -981,6 +1002,9 @@ def api_extract_ocr():
                     if not candidates:
                         continue
                     text = candidates[0].string()
+                    cleaned_text = clean_and_validate_extracted_text(text)
+                    if not cleaned_text:
+                        continue
                     box = obs.boundingBox()
                     
                     # Convert coordinates (bottom-left to top-left normalized)
@@ -990,7 +1014,7 @@ def api_extract_ocr():
                     h = box.size.height
                     
                     results.append({
-                        'text': text,
+                        'text': cleaned_text,
                         'box': [x, y, w, h]
                     })
                     

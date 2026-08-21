@@ -1491,6 +1491,8 @@ function initExtractWorkspace() {
   renderExtractLangCheckboxes();
   // Update Table headers dynamically
   updateExtractTableHeader();
+  // Update dropdown options
+  updateAutoPopulateLangOptions();
 
   if (extractState.rowCount === 0) {
     clearExtractEditor();
@@ -1538,6 +1540,64 @@ function updateExtractTableHeader() {
   `;
 }
 
+// Render options list for auto-populate dropdown
+function updateAutoPopulateLangOptions() {
+  const select = document.getElementById('extract-auto-populate-lang');
+  if (!select) return;
+  const currentVal = select.value;
+  
+  let html = `<option value="ENG">英文原文 (ENG)</option>`;
+  extractState.visibleLangs.forEach(code => {
+    html += `<option value="${code}">${LANG_NAMES[code] || code} (${code})</option>`;
+  });
+  select.innerHTML = html;
+  
+  if (select.querySelector(`option[value="${currentVal}"]`)) {
+    select.value = currentVal;
+  } else {
+    select.value = 'ENG';
+  }
+}
+
+// Synchronized Hover highlighters
+function highlightTableRow(idx, active) {
+  const row = document.getElementById(`extract-row-${idx}`);
+  if (row) {
+    if (active) {
+      row.classList.add('row-highlight');
+      row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else {
+      row.classList.remove('row-highlight');
+    }
+  }
+}
+
+function highlightOcrBox(idx, active) {
+  if (extractState.fileType === 'image') {
+    const box = document.querySelector(`.ocr-box[data-idx="${idx}"]`);
+    if (box) {
+      if (active) {
+        box.classList.add('box-highlight');
+      } else {
+        box.classList.remove('box-highlight');
+      }
+    }
+  } else if (extractState.fileType === 'pdf') {
+    const pdfList = document.getElementById('extract-pdf-list');
+    if (pdfList) {
+      const items = pdfList.querySelectorAll('.pdf-para-item');
+      if (items[idx]) {
+        if (active) {
+          items[idx].classList.add('box-highlight');
+          items[idx].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else {
+          items[idx].classList.remove('box-highlight');
+        }
+      }
+    }
+  }
+}
+
 // Toggle translation languages and rebuild table dynamically
 function handleExtractLangToggle(checkbox) {
   const code = checkbox.value;
@@ -1553,6 +1613,7 @@ function handleExtractLangToggle(checkbox) {
   const currentRowsData = getExtractTableRowsData();
   
   updateExtractTableHeader();
+  updateAutoPopulateLangOptions();
   
   // Rebuild tbody
   clearExtractEditor();
@@ -1604,6 +1665,10 @@ function addExtractRow(langsData = {}) {
   const tr = document.createElement('tr');
   tr.id = `extract-row-${idx}`;
   
+  // Bind mouse hover sync events!
+  tr.onmouseenter = () => highlightOcrBox(idx, true);
+  tr.onmouseleave = () => highlightOcrBox(idx, false);
+  
   let colsHtml = `
     <td>
       <input type="text" id="extract-row-${idx}-eng" class="form-input" value="${esc(langsData['ENG'] || '')}" onfocus="setActiveInput(this.id)" placeholder="點擊格或雙擊選取文字..."/>
@@ -1632,8 +1697,8 @@ function addExtractRow(langsData = {}) {
   tbody.appendChild(tr);
   extractState.rowCount++;
   
-  // Auto-focus the ENG field of the new row (only if we are not batch populating)
-  if (!langsData['ENG']) {
+  // Auto-focus the ENG field of the new row (only if we manually added a row)
+  if (Object.keys(langsData).length === 0) {
     setActiveInput(`extract-row-${idx}-eng`);
   }
 }
@@ -1801,22 +1866,29 @@ function checkAndAutoPopulate() {
   const autoPop = document.getElementById('extract-auto-populate');
   if (!autoPop || !autoPop.checked) return;
   
+  const select = document.getElementById('extract-auto-populate-lang');
+  const targetCode = select ? select.value : 'ENG';
+  
   clearExtractEditor();
   
   if (extractState.fileType === 'pdf') {
     const pageData = extractState.pdfPages[extractState.currentPage - 1];
     if (pageData && pageData.paragraphs.length > 0) {
       pageData.paragraphs.forEach(para => {
-        addExtractRow({ 'ENG': para });
+        const rowData = {};
+        rowData[targetCode] = para;
+        addExtractRow(rowData);
       });
-      showToast(`💡 已自動填入第 ${extractState.currentPage} 頁的 ${pageData.paragraphs.length} 筆段落！`, 'info');
+      showToast(`💡 已自動填入第 ${extractState.currentPage} 頁的 ${pageData.paragraphs.length} 筆段落至 ${targetCode}！`, 'info');
     }
   } else if (extractState.fileType === 'image') {
     if (extractState.ocrBlocks.length > 0) {
       extractState.ocrBlocks.forEach(block => {
-        addExtractRow({ 'ENG': block.text });
+        const rowData = {};
+        rowData[targetCode] = block.text;
+        addExtractRow(rowData);
       });
-      showToast(`💡 已自動填入圖片中 ${extractState.ocrBlocks.length} 筆 OCR 原文！`, 'info');
+      showToast(`💡 已自動填入圖片中 ${extractState.ocrBlocks.length} 筆 OCR 原文至 ${targetCode}！`, 'info');
     }
   }
 }
@@ -1846,11 +1918,17 @@ function renderExtractPreview() {
     pdfList.innerHTML = '';
     
     if (pageData && pageData.paragraphs.length > 0) {
-      pageData.paragraphs.forEach(para => {
+      pageData.paragraphs.forEach((para, index) => {
         const div = document.createElement('div');
         div.className = 'pdf-para-item';
+        div.setAttribute('data-idx', index);
         div.textContent = para;
         div.onclick = () => grabTextToActiveInput(para);
+        
+        // Synchronize Hover
+        div.onmouseenter = () => highlightTableRow(index, true);
+        div.onmouseleave = () => highlightTableRow(index, false);
+        
         pdfList.appendChild(div);
       });
     } else {
@@ -1866,10 +1944,11 @@ function renderExtractPreview() {
     overlays.innerHTML = '';
     
     // Add overlays
-    extractState.ocrBlocks.forEach(block => {
+    extractState.ocrBlocks.forEach((block, index) => {
       const box = block.box; // [x, y, w, h] normalized
       const div = document.createElement('div');
       div.className = 'ocr-box';
+      div.setAttribute('data-idx', index);
       div.style.left = `${box[0] * 100}%`;
       div.style.top = `${box[1] * 100}%`;
       div.style.width = `${box[2] * 100}%`;
@@ -1882,6 +1961,11 @@ function renderExtractPreview() {
         e.stopPropagation();
         grabTextToActiveInput(block.text);
       };
+      
+      // Synchronize Hover
+      div.onmouseenter = () => highlightTableRow(index, true);
+      div.onmouseleave = () => highlightTableRow(index, false);
+      
       overlays.appendChild(div);
     });
     

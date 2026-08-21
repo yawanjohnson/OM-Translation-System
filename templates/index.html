@@ -533,6 +533,19 @@
         box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.25) !important;
         background: rgba(0, 102, 255, 0.03) !important;
       }
+      .row-highlight {
+        background-color: rgba(255, 165, 0, 0.12) !important;
+      }
+      .box-highlight {
+        border-color: rgba(255, 165, 0, 0.9) !important;
+        background: rgba(255, 165, 0, 0.25) !important;
+        box-shadow: 0 0 8px rgba(255, 165, 0, 0.5) !important;
+      }
+      .pdf-para-item.box-highlight {
+        border-color: var(--accent) !important;
+        background: rgba(0, 102, 255, 0.12) !important;
+        box-shadow: 0 0 6px rgba(0, 102, 255, 0.2) !important;
+      }
     </style>
 
     <div class="tab-header">
@@ -609,10 +622,16 @@
 
         <!-- 自動填充與語系多選區 -->
         <div style="margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px;">
-          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; font-size: 12px; font-weight: bold; color: var(--text-primary);">
-            <input type="checkbox" id="extract-auto-populate" checked />
-            <span>自動填入英文原文 (Auto-populate ENG)</span>
-          </label>
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: bold; color: var(--text-primary);">
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; margin: 0;">
+              <input type="checkbox" id="extract-auto-populate" checked onchange="checkAndAutoPopulate()"/>
+              <span>自動填入提取內容至：</span>
+            </label>
+            <select id="extract-auto-populate-lang" class="form-input" style="padding: 2px 6px; font-size: 11px; width: auto; height: auto;" onchange="checkAndAutoPopulate()">
+              <option value="ENG">英文原文 (ENG)</option>
+              <!-- JS 動態生成 -->
+            </select>
+          </div>
           
           <div style="border: 1px solid var(--border); border-radius: 4px; padding: 8px; background: rgba(255,255,255,0.02);">
             <label class="form-label" style="font-size: 10px; margin-bottom: 6px; display: block; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">顯示對照語系直欄 (Toggle Translation Columns)</label>
