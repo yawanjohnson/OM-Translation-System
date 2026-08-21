@@ -1099,12 +1099,26 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
   });
 });
 
-// ESC 關閉
+// ESC 關閉與 Ctrl+Z 復原快捷鍵
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     document.querySelectorAll('.modal-overlay').forEach(m => {
       if (m.style.display !== 'none') closeModal(m.id);
     });
+  }
+  
+  // Ctrl+Z or Cmd+Z for Undo in Smart Extractor
+  const isZ = e.key === 'z' || e.key === 'Z';
+  const isMetaOrCtrl = e.metaKey || e.ctrlKey;
+  if (isZ && isMetaOrCtrl) {
+    const extractTab = document.getElementById('tab-extract');
+    if (extractTab && extractTab.classList.contains('active')) {
+      // Do not block default browser undo when user is typing inside textareas or inputs
+      if (document.activeElement.tagName !== 'TEXTAREA' && document.activeElement.tagName !== 'INPUT') {
+        e.preventDefault();
+        undoExtractMerge();
+      }
+    }
   }
 });
 
@@ -2042,6 +2056,251 @@ function grabTextToActiveInput(text) {
   }
 }
 
+// Render Preview Area
+function renderExtractPreview() {
+  const placeholder = document.getElementById('extract-viewer-placeholder');
+  const canvasContainer = document.getElementById('extract-canvas-container');
+  const pdfList = document.getElementById('extract-pdf-list');
+  const title = document.getElementById('extract-viewer-title');
+  const pageControls = document.getElementById('extract-page-controls');
+  
+  placeholder.style.display = 'none';
+  canvasContainer.style.display = 'none';
+  pdfList.style.display = 'none';
+  pageControls.style.display = 'none';
+  
+  if (extractState.fileType === 'pdf') {
+    title.textContent = `📄 PDF 段落預覽 (共 ${extractState.pdfPages.length} 頁)`;
+    pageControls.style.display = 'flex';
+    pdfList.style.display = 'flex';
+    
+    // Update Page text
+    document.getElementById('extract-page-num').textContent = `第 ${extractState.currentPage} 頁 / ${extractState.pdfPages.length} 頁`;
+    
+    const pageData = extractState.pdfPages[extractState.currentPage - 1];
+    pdfList.innerHTML = '';
+    
+    if (pageData && pageData.paragraphs.length > 0) {
+      pageData.paragraphs.forEach((para, index) => {
+        const div = document.createElement('div');
+        div.className = 'pdf-para-item';
+        div.setAttribute('data-idx', index);
+        
+        // Editable textarea for direct modification
+        const textarea = document.createElement('textarea');
+        textarea.className = 'pdf-para-textarea';
+        textarea.value = para;
+        textarea.rows = Math.max(1, Math.ceil(para.length / 50));
+        textarea.oninput = (e) => {
+          updateExtractBlockText(index, e.target.value);
+        };
+        textarea.onclick = (e) => {
+          e.stopPropagation();
+        };
+        div.appendChild(textarea);
+        
+        div.onclick = () => grabTextToActiveInput(para);
+        
+        // Actions wrapper
+        const actionsDiv = document.createElement('div');
+        actionsDiv.style.display = 'flex';
+        actionsDiv.style.alignItems = 'center';
+        actionsDiv.style.gap = '6px';
+        
+        // Merge button (if not last item)
+        if (index < pageData.paragraphs.length - 1) {
+          const btn = document.createElement('button');
+          btn.className = 'btn btn-ghost btn-sm';
+          btn.style.padding = '2px 6px';
+          btn.style.fontSize = '10px';
+          btn.style.height = 'auto';
+          btn.style.color = 'var(--accent)';
+          btn.style.border = '1px solid rgba(0, 102, 255, 0.15)';
+          btn.style.borderRadius = '4px';
+          btn.innerHTML = '🔗 合併下句';
+          btn.onclick = (e) => {
+            e.stopPropagation();
+            mergeExtractBlockWithNext(index);
+          };
+          actionsDiv.appendChild(btn);
+        }
+        
+        // Delete block button
+        const delBtn = document.createElement('button');
+        delBtn.className = 'pdf-para-delete';
+        delBtn.innerHTML = '✕';
+        delBtn.title = '刪除此段落';
+        delBtn.onclick = (e) => {
+          e.stopPropagation();
+          deleteExtractBlock(index);
+        };
+        actionsDiv.appendChild(delBtn);
+        
+        div.appendChild(actionsDiv);
+        
+        // Synchronize Hover
+        div.onmouseenter = () => highlightTableRow(index, true);
+        div.onmouseleave = () => highlightTableRow(index, false);
+        
+        pdfList.appendChild(div);
+      });
+    } else {
+      pdfList.innerHTML = '<div class="empty-cell" style="padding: 20px;">本頁無可辨識文字段落</div>';
+    }
+    
+  } else if (extractState.fileType === 'image') {
+    title.textContent = `🖼️ 截圖 OCR 標記與文字清單`;
+    canvasContainer.style.display = 'block';
+    pdfList.style.display = 'flex'; // Display cards underneath image
+    
+    // Clear old overlays
+    const overlays = document.getElementById('extract-ocr-overlays');
+    overlays.innerHTML = '';
+    
+    // Add overlays
+    extractState.ocrBlocks.forEach((block, index) => {
+      const box = block.box; // [x, y, w, h] normalized
+      const div = document.createElement('div');
+      div.className = 'ocr-box';
+      div.setAttribute('data-idx', index);
+      div.style.left = `${box[0] * 100}%`;
+      div.style.top = `${box[1] * 100}%`;
+      div.style.width = `${box[2] * 100}%`;
+      div.style.height = `${box[3] * 100}%`;
+      div.title = block.text;
+      
+      div.style.pointerEvents = 'auto';
+      
+      div.onclick = (e) => {
+        e.stopPropagation();
+        grabTextToActiveInput(block.text);
+      };
+      
+      // Synchronize Hover
+      div.onmouseenter = () => highlightTableRow(index, true);
+      div.onmouseleave = () => highlightTableRow(index, false);
+      
+      overlays.appendChild(div);
+    });
+    
+    // Render text cards under the image!
+    pdfList.innerHTML = '';
+    if (extractState.ocrBlocks.length > 0) {
+      const headerLabel = document.createElement('div');
+      headerLabel.style.fontSize = '11px';
+      headerLabel.style.color = 'var(--text-muted)';
+      headerLabel.style.marginBottom = '6px';
+      headerLabel.style.textTransform = 'uppercase';
+      headerLabel.style.letterSpacing = '0.5px';
+      headerLabel.textContent = '圖片文字清單 (OCR Blocks List)';
+      pdfList.appendChild(headerLabel);
+      
+      extractState.ocrBlocks.forEach((block, index) => {
+        const div = document.createElement('div');
+        div.className = 'pdf-para-item';
+        div.setAttribute('data-idx', index);
+        
+        // Editable textarea for OCR cards
+        const textarea = document.createElement('textarea');
+        textarea.className = 'pdf-para-textarea';
+        textarea.value = block.text;
+        textarea.rows = Math.max(1, Math.ceil(block.text.length / 50));
+        textarea.oninput = (e) => {
+          updateExtractBlockText(index, e.target.value);
+        };
+        textarea.onclick = (e) => {
+          e.stopPropagation();
+        };
+        div.appendChild(textarea);
+        
+        div.onclick = () => grabTextToActiveInput(block.text);
+        
+        // Actions wrapper
+        const actionsDiv = document.createElement('div');
+        actionsDiv.style.display = 'flex';
+        actionsDiv.style.alignItems = 'center';
+        actionsDiv.style.gap = '6px';
+        
+        // Merge button (if not last item)
+        if (index < extractState.ocrBlocks.length - 1) {
+          const btn = document.createElement('button');
+          btn.className = 'btn btn-ghost btn-sm';
+          btn.style.padding = '2px 6px';
+          btn.style.fontSize = '10px';
+          btn.style.height = 'auto';
+          btn.style.color = 'var(--accent)';
+          btn.style.border = '1px solid rgba(0, 102, 255, 0.15)';
+          btn.style.borderRadius = '4px';
+          btn.innerHTML = '🔗 合併下句';
+          btn.onclick = (e) => {
+            e.stopPropagation();
+            mergeExtractBlockWithNext(index);
+          };
+          actionsDiv.appendChild(btn);
+        }
+        
+        // Delete block button
+        const delBtn = document.createElement('button');
+        delBtn.className = 'pdf-para-delete';
+        delBtn.innerHTML = '✕';
+        delBtn.title = '刪除此段落';
+        delBtn.onclick = (e) => {
+          e.stopPropagation();
+          deleteExtractBlock(index);
+        };
+        actionsDiv.appendChild(delBtn);
+        
+        div.appendChild(actionsDiv);
+        
+        // Synchronize Hover
+        div.onmouseenter = () => highlightTableRow(index, true);
+        div.onmouseleave = () => highlightTableRow(index, false);
+        
+        pdfList.appendChild(div);
+      });
+    } else {
+      pdfList.innerHTML = '<div class="empty-cell" style="padding: 20px;">圖片中無可辨識文字段落</div>';
+    }
+    
+    // Recalculate overlay layout coordinates over the scale image
+    setTimeout(resizeOcrOverlays, 100);
+  }
+  
+  // Append target language selection and populate button at the very bottom of left cards list!
+  if (extractState.fileType === 'pdf' || extractState.fileType === 'image') {
+    const popDiv = document.createElement('div');
+    popDiv.className = 'pdf-para-item';
+    popDiv.style.background = 'rgba(0, 102, 255, 0.05)';
+    popDiv.style.border = '1px dashed var(--accent)';
+    popDiv.style.display = 'flex';
+    popDiv.style.alignItems = 'center';
+    popDiv.style.justifyContent = 'space-between';
+    popDiv.style.padding = '12px';
+    popDiv.style.marginTop = '15px';
+    popDiv.style.marginBottom = '20px';
+    
+    popDiv.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 12px; font-weight: bold; color: var(--text-primary);">📥 匯入右側表格</span>
+        <span style="font-size: 11px; color: var(--text-muted);">選擇填入語系：</span>
+        <select id="extract-populate-target-lang" style="background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: 12px; outline: none;">
+          ${LANG_CODES.map(code => `<option value="${code}" ${code === (extractState.ocrDetectedLang || 'ENG') ? 'selected' : ''}>${LANG_NAMES[code] || code} (${code})</option>`).join('')}
+        </select>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="populateFromBottom()" style="padding: 6px 14px; font-size: 12px;">確認填入</button>
+    `;
+    pdfList.appendChild(popDiv);
+  }
+}
+
+// Bottom populate selector trigger helper
+function populateFromBottom() {
+  const select = document.getElementById('extract-populate-target-lang');
+  if (!select) return;
+  const targetLang = select.value;
+  populateExtractColumn(targetLang);
+}
+
 // Handle file upload
 async function handleExtractUpload(input) {
   if (input.files && input.files.length > 0) {
@@ -2206,163 +2465,6 @@ function populateExtractColumn(langCode) {
   });
   
   showToast(`📥 已將當前檔案文字成功填入 ${langCode} 直欄！`, 'success');
-}
-
-// Render Preview Area
-function renderExtractPreview() {
-  const placeholder = document.getElementById('extract-viewer-placeholder');
-  const canvasContainer = document.getElementById('extract-canvas-container');
-  const pdfList = document.getElementById('extract-pdf-list');
-  const title = document.getElementById('extract-viewer-title');
-  const pageControls = document.getElementById('extract-page-controls');
-  
-  placeholder.style.display = 'none';
-  canvasContainer.style.display = 'none';
-  pdfList.style.display = 'none';
-  pageControls.style.display = 'none';
-  
-  if (extractState.fileType === 'pdf') {
-    title.textContent = `📄 PDF 段落預覽 (共 ${extractState.pdfPages.length} 頁)`;
-    pageControls.style.display = 'flex';
-    pdfList.style.display = 'flex';
-    
-    // Update Page text
-    document.getElementById('extract-page-num').textContent = `第 ${extractState.currentPage} 頁 / ${extractState.pdfPages.length} 頁`;
-    
-    const pageData = extractState.pdfPages[extractState.currentPage - 1];
-    pdfList.innerHTML = '';
-    
-    if (pageData && pageData.paragraphs.length > 0) {
-      pageData.paragraphs.forEach((para, index) => {
-        const div = document.createElement('div');
-        div.className = 'pdf-para-item';
-        div.setAttribute('data-idx', index);
-        
-        const textSpan = document.createElement('span');
-        textSpan.style.flex = '1';
-        textSpan.textContent = para;
-        div.appendChild(textSpan);
-        
-        div.onclick = () => grabTextToActiveInput(para);
-        
-        // Merge button (if not last item)
-        if (index < pageData.paragraphs.length - 1) {
-          const btn = document.createElement('button');
-          btn.className = 'btn btn-ghost btn-sm';
-          btn.style.padding = '2px 6px';
-          btn.style.fontSize = '10px';
-          btn.style.height = 'auto';
-          btn.style.color = 'var(--accent)';
-          btn.style.border = '1px solid rgba(0, 102, 255, 0.15)';
-          btn.style.borderRadius = '4px';
-          btn.innerHTML = '🔗 合併下句';
-          btn.onclick = (e) => {
-            e.stopPropagation();
-            mergeExtractBlockWithNext(index);
-          };
-          div.appendChild(btn);
-        }
-        
-        // Synchronize Hover
-        div.onmouseenter = () => highlightTableRow(index, true);
-        div.onmouseleave = () => highlightTableRow(index, false);
-        
-        pdfList.appendChild(div);
-      });
-    } else {
-      pdfList.innerHTML = '<div class="empty-cell" style="padding: 20px;">本頁無可辨識文字段落</div>';
-    }
-    
-  } else if (extractState.fileType === 'image') {
-    title.textContent = `🖼️ 截圖 OCR 標記與文字清單`;
-    canvasContainer.style.display = 'block';
-    pdfList.style.display = 'flex'; // Display cards underneath image
-    
-    // Clear old overlays
-    const overlays = document.getElementById('extract-ocr-overlays');
-    overlays.innerHTML = '';
-    
-    // Add overlays
-    extractState.ocrBlocks.forEach((block, index) => {
-      const box = block.box; // [x, y, w, h] normalized
-      const div = document.createElement('div');
-      div.className = 'ocr-box';
-      div.setAttribute('data-idx', index);
-      div.style.left = `${box[0] * 100}%`;
-      div.style.top = `${box[1] * 100}%`;
-      div.style.width = `${box[2] * 100}%`;
-      div.style.height = `${box[3] * 100}%`;
-      div.title = block.text;
-      
-      div.style.pointerEvents = 'auto';
-      
-      div.onclick = (e) => {
-        e.stopPropagation();
-        grabTextToActiveInput(block.text);
-      };
-      
-      // Synchronize Hover
-      div.onmouseenter = () => highlightTableRow(index, true);
-      div.onmouseleave = () => highlightTableRow(index, false);
-      
-      overlays.appendChild(div);
-    });
-    
-    // Render text cards under the image!
-    pdfList.innerHTML = '';
-    if (extractState.ocrBlocks.length > 0) {
-      const headerLabel = document.createElement('div');
-      headerLabel.style.fontSize = '11px';
-      headerLabel.style.color = 'var(--text-muted)';
-      headerLabel.style.marginBottom = '6px';
-      headerLabel.style.textTransform = 'uppercase';
-      headerLabel.style.letterSpacing = '0.5px';
-      headerLabel.textContent = '圖片文字清單 (OCR Blocks List)';
-      pdfList.appendChild(headerLabel);
-      
-      extractState.ocrBlocks.forEach((block, index) => {
-        const div = document.createElement('div');
-        div.className = 'pdf-para-item';
-        div.setAttribute('data-idx', index);
-        
-        const textSpan = document.createElement('span');
-        textSpan.style.flex = '1';
-        textSpan.textContent = block.text;
-        div.appendChild(textSpan);
-        
-        div.onclick = () => grabTextToActiveInput(block.text);
-        
-        // Merge button (if not last item)
-        if (index < extractState.ocrBlocks.length - 1) {
-          const btn = document.createElement('button');
-          btn.className = 'btn btn-ghost btn-sm';
-          btn.style.padding = '2px 6px';
-          btn.style.fontSize = '10px';
-          btn.style.height = 'auto';
-          btn.style.color = 'var(--accent)';
-          btn.style.border = '1px solid rgba(0, 102, 255, 0.15)';
-          btn.style.borderRadius = '4px';
-          btn.innerHTML = '🔗 合併下句';
-          btn.onclick = (e) => {
-            e.stopPropagation();
-            mergeExtractBlockWithNext(index);
-          };
-          div.appendChild(btn);
-        }
-        
-        // Synchronize Hover
-        div.onmouseenter = () => highlightTableRow(index, true);
-        div.onmouseleave = () => highlightTableRow(index, false);
-        
-        pdfList.appendChild(div);
-      });
-    } else {
-      pdfList.innerHTML = '<div class="empty-cell" style="padding: 20px;">圖片中無可辨識文字段落</div>';
-    }
-    
-    // Recalculate overlay layout coordinates over the scale image
-    setTimeout(resizeOcrOverlays, 100);
-  }
 }
 
 // Merge a preview text block with the next one sequentially
