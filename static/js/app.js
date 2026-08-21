@@ -121,6 +121,7 @@ const TAB_TITLES = {
   import:   '匯入資料',
   apply:    '套用語言到 IDML',
   conflict: '翻譯衝突管理',
+  extract:  '智慧文字提取與對照',
 };
 
 document.querySelectorAll('.nav-item').forEach(btn => {
@@ -135,6 +136,9 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     if (tab === 'conflict') {
       switchConflictSubTab('pending');
       loadConflictLogLanguages();
+    }
+    if (tab === 'extract') {
+      initExtractWorkspace();
     }
   });
 });
@@ -1462,5 +1466,364 @@ function clearPendingConflictSearch() {
   if (input) {
     input.value = '';
     filterPendingConflicts();
+  }
+}
+
+// ──────────────────────────────────────────────────────
+// 智慧文字提取 & OCR 互動 (Smart Extractor)
+// ──────────────────────────────────────────────────────
+
+let extractState = {
+  fileType: null, // 'pdf' or 'image'
+  pdfPages: [],   // [ { page: 1, paragraphs: [...] }, ... ]
+  ocrBlocks: [],  // [ { text: "...", box: [x, y, w, h] }, ... ]
+  currentPage: 1,
+  activeInputId: null, // ID of currently focused text input in table (e.g. 'extract-row-0-eng')
+  rowCount: 0
+};
+
+// Initialize workspace when switching to tab
+function initExtractWorkspace() {
+  if (extractState.rowCount === 0) {
+    clearExtractEditor();
+    // Add 3 blank rows by default
+    for (let i = 0; i < 3; i++) {
+      addExtractRow();
+    }
+  }
+  // Setup overlay resizer on window resize
+  window.addEventListener('resize', resizeOcrOverlays);
+}
+
+// Clear or Reset editor
+function clearExtractEditor() {
+  document.getElementById('extract-editor-tbody').innerHTML = '';
+  extractState.rowCount = 0;
+  extractState.activeInputId = null;
+}
+
+// Add a blank row to the matching editor table
+function addExtractRow(eng = '', cht = '') {
+  const tbody = document.getElementById('extract-editor-tbody');
+  const idx = extractState.rowCount;
+  
+  const tr = document.createElement('tr');
+  tr.id = `extract-row-${idx}`;
+  
+  tr.innerHTML = `
+    <td style="text-align: center; vertical-align: middle;">
+      <input type="checkbox" class="extract-row-checkbox" checked />
+    </td>
+    <td>
+      <input type="text" id="extract-row-${idx}-eng" class="form-input" value="${esc(eng)}" onfocus="setActiveInput(this.id)" placeholder="點擊此格以抓取原文..."/>
+    </td>
+    <td>
+      <input type="text" id="extract-row-${idx}-cht" class="form-input" value="${esc(cht)}" onfocus="setActiveInput(this.id)" placeholder="點擊此格以抓取譯文..."/>
+    </td>
+    <td style="text-align: center; vertical-align: middle;">
+      <button class="btn btn-ghost btn-sm" onclick="removeExtractRowById('extract-row-${idx}')" style="color: var(--error); padding: 2px 6px;">✕</button>
+    </td>
+  `;
+  
+  tbody.appendChild(tr);
+  extractState.rowCount++;
+  
+  // Auto-focus the ENG field of the new row
+  setActiveInput(`extract-row-${idx}-eng`);
+}
+
+function removeExtractRowById(rowId) {
+  const row = document.getElementById(rowId);
+  if (row) {
+    row.remove();
+  }
+}
+
+// Toggle check all rows
+function toggleSelectAllExtract(cb) {
+  document.querySelectorAll('.extract-row-checkbox').forEach(chk => {
+    chk.checked = cb.checked;
+  });
+}
+
+// Track currently active/focused input cell in the editor table
+function setActiveInput(inputId) {
+  // Remove highlight class from previous
+  if (extractState.activeInputId) {
+    const prev = document.getElementById(extractState.activeInputId);
+    if (prev) prev.classList.remove('editor-input-active');
+  }
+  
+  extractState.activeInputId = inputId;
+  
+  // Highlight the current active input
+  const curr = document.getElementById(inputId);
+  if (curr) {
+    curr.classList.add('editor-input-active');
+    curr.focus();
+  }
+}
+
+// Populate the selected input field with clicked text snippet
+function grabTextToActiveInput(text) {
+  if (!extractState.activeInputId) {
+    showToast('💡 請先在右側對照編輯器中，點選一個輸入框儲存格！', 'info');
+    return;
+  }
+  
+  const activeInput = document.getElementById(extractState.activeInputId);
+  if (activeInput) {
+    activeInput.value = text;
+    
+    // Add a visual indicator (blink) that the value has been grabbed
+    activeInput.style.transition = 'background-color 0.2s';
+    activeInput.style.backgroundColor = 'rgba(0, 200, 80, 0.2)';
+    setTimeout(() => {
+      activeInput.style.backgroundColor = '';
+    }, 400);
+    
+    // Auto-advance cursor to CHT if ENG was populated, or to next row's ENG if CHT was populated
+    const idParts = extractState.activeInputId.split('-');
+    const rowIdx = parseInt(idParts[2], 10);
+    const colName = idParts[3];
+    
+    if (colName === 'eng') {
+      // Focus CHT of same row
+      const nextId = `extract-row-${rowIdx}-cht`;
+      if (document.getElementById(nextId)) {
+        setActiveInput(nextId);
+      }
+    } else if (colName === 'cht') {
+      // Focus ENG of next row (if exists, else create new row)
+      const nextId = `extract-row-${rowIdx + 1}-eng`;
+      if (document.getElementById(nextId)) {
+        setActiveInput(nextId);
+      } else {
+        addExtractRow();
+      }
+    }
+  }
+}
+
+// Handle file upload
+async function handleExtractUpload(input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  const name = file.name.toLowerCase();
+  
+  const fd = new FormData();
+  fd.append('file', file);
+  
+  showLoading('讀取與解析文字中...');
+  try {
+    if (name.endsWith('.pdf')) {
+      extractState.fileType = 'pdf';
+      const res = await fetch('/api/extract/pdf', { method: 'POST', body: fd });
+      const data = await res.json();
+      hideLoading();
+      if (!data.ok) { showToast('❌ ' + data.error, 'error'); return; }
+      
+      extractState.pdfPages = data.pages;
+      extractState.currentPage = 1;
+      showToast('✅ PDF 文字撈取成功！');
+      renderExtractPreview();
+      
+    } else if (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg')) {
+      extractState.fileType = 'image';
+      // Load local image preview using FileReader so we can display it instantly
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = document.getElementById('extract-ocr-img');
+        img.src = e.target.result;
+        img.onload = () => {
+          resizeOcrOverlays();
+        };
+      };
+      reader.readAsDataURL(file);
+      
+      const res = await fetch('/api/extract/ocr', { method: 'POST', body: fd });
+      const data = await res.json();
+      hideLoading();
+      if (!data.ok) { showToast('❌ ' + data.error, 'error'); return; }
+      
+      extractState.ocrBlocks = data.blocks;
+      showToast('✅ 圖片 OCR 辨識成功！');
+      renderExtractPreview();
+      
+    } else {
+      hideLoading();
+      showToast('❌ 不支援的檔案格式，請上傳 PDF 或圖片。', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('❌ 文字提取失敗：' + e.message, 'error');
+  }
+}
+
+// Render Preview Area
+function renderExtractPreview() {
+  const placeholder = document.getElementById('extract-viewer-placeholder');
+  const canvasContainer = document.getElementById('extract-canvas-container');
+  const pdfList = document.getElementById('extract-pdf-list');
+  const title = document.getElementById('extract-viewer-title');
+  const pageControls = document.getElementById('extract-page-controls');
+  
+  placeholder.style.display = 'none';
+  canvasContainer.style.display = 'none';
+  pdfList.style.display = 'none';
+  pageControls.style.display = 'none';
+  
+  if (extractState.fileType === 'pdf') {
+    title.textContent = `📄 PDF 段落預覽 (共 ${extractState.pdfPages.length} 頁)`;
+    pageControls.style.display = 'flex';
+    pdfList.style.display = 'flex';
+    
+    // Update Page text
+    document.getElementById('extract-page-num').textContent = `第 ${extractState.currentPage} 頁 / ${extractState.pdfPages.length} 頁`;
+    
+    const pageData = extractState.pdfPages[extractState.currentPage - 1];
+    pdfList.innerHTML = '';
+    
+    if (pageData && pageData.paragraphs.length > 0) {
+      pageData.paragraphs.forEach(para => {
+        const div = document.createElement('div');
+        div.className = 'pdf-para-item';
+        div.textContent = para;
+        div.onclick = () => grabTextToActiveInput(para);
+        pdfList.appendChild(div);
+      });
+    } else {
+      pdfList.innerHTML = '<div class="empty-cell" style="padding: 20px;">本頁無可辨識文字段落</div>';
+    }
+    
+  } else if (extractState.fileType === 'image') {
+    title.textContent = `🖼️ 截圖 OCR 標記 (點擊區塊複製)`;
+    canvasContainer.style.display = 'block';
+    
+    // Clear old overlays
+    const overlays = document.getElementById('extract-ocr-overlays');
+    overlays.innerHTML = '';
+    
+    // Add overlays
+    extractState.ocrBlocks.forEach(block => {
+      const box = block.box; // [x, y, w, h] normalized
+      const div = document.createElement('div');
+      div.className = 'ocr-box';
+      div.style.left = `${box[0] * 100}%`;
+      div.style.top = `${box[1] * 100}%`;
+      div.style.width = `${box[2] * 100}%`;
+      div.style.height = `${box[3] * 100}%`;
+      div.title = block.text;
+      
+      div.style.pointerEvents = 'auto';
+      
+      div.onclick = (e) => {
+        e.stopPropagation();
+        grabTextToActiveInput(block.text);
+      };
+      overlays.appendChild(div);
+    });
+    
+    // Recalculate overlay layout coordinates over the scale image
+    setTimeout(resizeOcrOverlays, 100);
+  }
+}
+
+// Adjust overlays to match scaling of responsive image preview
+function resizeOcrOverlays() {
+  const img = document.getElementById('extract-ocr-img');
+  const overlays = document.getElementById('extract-ocr-overlays');
+  if (!img || !overlays || img.style.display === 'none') return;
+  
+  overlays.style.width = img.clientWidth + 'px';
+  overlays.style.height = img.clientHeight + 'px';
+  overlays.style.left = img.offsetLeft + 'px';
+  overlays.style.top = img.offsetTop + 'px';
+}
+
+// PDF Pagination Controls
+function prevExtractPage() {
+  if (extractState.currentPage > 1) {
+    extractState.currentPage--;
+    renderExtractPreview();
+  }
+}
+
+// Next page
+function nextExtractPage() {
+  if (extractState.currentPage < extractState.pdfPages.length) {
+    extractState.currentPage++;
+    renderExtractPreview();
+  }
+}
+
+// Submit aligned translation rows to SQLite Database via backend JSON API
+async function submitExtractToDB() {
+  const product = document.getElementById('extract-default-product').value.trim();
+  const chapter = document.getElementById('extract-default-chapter').value.trim();
+  
+  if (!product || !chapter) {
+    showToast('⚠️ 請先填入預設的「產品型號」與「章節」！', 'warning');
+    return;
+  }
+  
+  const rows = [];
+  const tbody = document.getElementById('extract-editor-tbody');
+  const trs = tbody.querySelectorAll('tr');
+  
+  trs.forEach(tr => {
+    const chk = tr.querySelector('.extract-row-checkbox');
+    if (chk && chk.checked) {
+      const inputs = tr.querySelectorAll('input[type="text"]');
+      const eng = inputs[0] ? inputs[0].value.trim() : '';
+      const cht = inputs[1] ? inputs[1].value.trim() : '';
+      
+      if (eng) {
+        rows.push({
+          product: product,
+          chapter: chapter,
+          ENG: eng,
+          CHT: cht
+        });
+      }
+    }
+  });
+  
+  if (rows.length === 0) {
+    showToast('⚠️ 表格中無勾選或填寫的有效對照條目！', 'warning');
+    return;
+  }
+  
+  showLoading('正匯入對照翻譯至資料庫...');
+  try {
+    const res = await fetch('/api/extract/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows: rows })
+    });
+    const data = await res.json();
+    hideLoading();
+    
+    if (!data.ok) {
+      showToast('❌ 匯入失敗：' + data.error, 'error');
+      return;
+    }
+    
+    showToast(`✅ ${data.message}`);
+    
+    // Refresh parent statistics and table view if database is active
+    loadDBStats();
+    searchDB();
+    updateConflictBadge();
+    
+    // Clear and reset matching table upon successful import
+    clearExtractEditor();
+    for (let i = 0; i < 3; i++) {
+      addExtractRow();
+    }
+    
+  } catch (e) {
+    hideLoading();
+    showToast('❌ 連線伺服器發生異常：' + e.message, 'error');
   }
 }

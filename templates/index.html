@@ -43,6 +43,10 @@
       <span class="nav-label">衝突管理</span>
       <span class="badge-red" id="conflict-badge" style="display:none">0</span>
     </button>
+    <button class="nav-item" data-tab="extract" id="nav-extract">
+      <span class="nav-icon">👁️</span>
+      <span class="nav-label">智慧提取</span>
+    </button>
   </nav>
 
   <div class="sidebar-footer">
@@ -490,6 +494,144 @@
       <div class="pagination" id="conflict-log-pagination"></div>
     </div>
 
+  </section>
+
+  <!-- 智慧文字提取分頁 -->
+  <section class="tab-content" id="tab-extract">
+    <style>
+      .ocr-box {
+        position: absolute;
+        border: 2px solid rgba(0, 102, 255, 0.4);
+        background: rgba(0, 102, 255, 0.08);
+        cursor: pointer;
+        pointer-events: auto;
+        box-sizing: border-box;
+        transition: background 0.15s, border-color 0.15s;
+        border-radius: 3px;
+      }
+      .ocr-box:hover {
+        border-color: rgba(0, 102, 255, 0.9);
+        background: rgba(0, 102, 255, 0.22);
+      }
+      .pdf-para-item {
+        padding: 10px 12px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background 0.12s, border-color 0.12s;
+        text-align: left;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      .pdf-para-item:hover {
+        background: rgba(255, 255, 255, 0.07);
+        border-color: var(--accent);
+      }
+      .editor-input-active {
+        border-color: var(--accent) !important;
+        box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.25) !important;
+        background: rgba(0, 102, 255, 0.03) !important;
+      }
+    </style>
+
+    <div class="tab-header">
+      <h2>👁️ 智慧文字提取與對照</h2>
+      <p class="tab-desc">上傳說明書 PDF 檔案（電子版）或高解析度圖片截圖，即可快速提取文字，建立多語言對照並匯入資料庫。</p>
+    </div>
+
+    <!-- 上面：上傳面板 -->
+    <div class="panel" style="margin-bottom: 20px;">
+      <div class="upload-zone" id="extract-upload-zone" style="height: 100px; padding: 15px;" onclick="document.getElementById('extract-file-input').click()">
+        <span class="upload-icon" style="font-size: 24px; margin-bottom: 5px;">📤</span>
+        <p class="upload-text" style="font-size: 14px;">點擊或拖曳上傳 <strong>PDF</strong> 說明書 或 <strong>PNG/JPG</strong> 圖片截圖</p>
+        <p class="upload-sub" style="font-size: 11px;">支援本機 PDF 文字撈取與 macOS Vision 原生高精度 OCR</p>
+        <input type="file" id="extract-file-input" style="display:none" accept=".pdf,.png,.jpg,.jpeg" onchange="handleExtractUpload(this)"/>
+      </div>
+    </div>
+
+    <!-- 下面：雙欄佈局 -->
+    <div style="display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 20px; align-items: start;">
+      
+      <!-- 左欄：互動預覽區 -->
+      <div class="panel" style="min-height: 520px; display: flex; flex-direction: column;">
+        <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 15px;">
+          <h3 id="extract-viewer-title">📄 檔案預覽 (未上傳)</h3>
+          <div id="extract-page-controls" style="display: none; align-items: center; gap: 8px;">
+            <button class="btn btn-ghost btn-sm" onclick="prevExtractPage()" style="padding: 2px 8px;">◀</button>
+            <span id="extract-page-num" style="font-size: 13px; font-weight: bold;">第 1 頁 / 1 頁</span>
+            <button class="btn btn-ghost btn-sm" onclick="nextExtractPage()" style="padding: 2px 8px;">▶</button>
+          </div>
+        </div>
+        
+        <!-- 內容容器 -->
+        <div id="extract-viewer-body" style="flex: 1; overflow-y: auto; max-height: 480px; min-height: 400px; border: 1px dashed var(--border); border-radius: 6px; padding: 12px; background: rgba(0,0,0,0.15); position: relative; display: flex; flex-direction: column;">
+          
+          <!-- 預設提示 -->
+          <div id="extract-viewer-placeholder" style="position: absolute; top:50%; left:50%; transform: translate(-50%, -50%); text-align: center; color: var(--text-muted); width: 80%;">
+            <p style="font-size: 15px; font-weight: bold; margin-bottom: 6px;">請於上方區塊上傳檔案</p>
+            <p style="font-size: 12px;">PDF 檔案將載入段落文字清單；圖片截圖將顯示 OCR 辨識可點擊標記框</p>
+          </div>
+          
+          <!-- 圖片 Canvas 容器 -->
+          <div id="extract-canvas-container" style="display: none; position: relative; width: 100%; text-align: center; margin: auto;">
+            <img id="extract-ocr-img" style="max-width: 100%; height: auto; border-radius: 4px; display: block; margin: auto;" alt="OCR Preview"/>
+            <div id="extract-ocr-overlays" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></div>
+          </div>
+          
+          <!-- PDF 段落列表 -->
+          <div id="extract-pdf-list" style="display: none; display: flex; flex-direction: column; gap: 8px; width: 100%;"></div>
+        </div>
+      </div>
+
+      <!-- 右欄：編輯與對照區 -->
+      <div class="panel" style="min-height: 520px; display: flex; flex-direction: column;">
+        <div class="panel-header" style="border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
+          <h3>📝 多語系對照編輯器</h3>
+          <button class="btn btn-ghost btn-sm" onclick="addExtractRow()" style="padding: 4px 10px;">＋ 新增行</button>
+        </div>
+        
+        <!-- 表格欄位設定 -->
+        <div class="form-row-2" style="margin-bottom: 12px; gap: 10px;">
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-size: 11px; margin-bottom: 2px;">預設產品型號</label>
+            <input type="text" id="extract-default-product" class="form-input" placeholder="e.g. TR-500" value="OM" style="padding: 6px 10px; font-size: 12px;"/>
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-size: 11px; margin-bottom: 2px;">預設章節</label>
+            <input type="text" id="extract-default-chapter" class="form-input" placeholder="e.g. Operation" value="General" style="padding: 6px 10px; font-size: 12px;"/>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 10px; font-size: 12px; color: var(--text-muted); line-height: 1.4; background: rgba(0,102,255,0.05); padding: 8px; border-radius: 4px; border-left: 3px solid var(--accent);">
+          💡 <strong>快速填入：</strong>選取下方表格的任一儲存格（藍色框線），再點選左側預覽區的「PDF段落」或「圖片標記框」，即可直接輸入該文字！
+        </div>
+
+        <!-- 編輯表格區 -->
+        <div class="table-wrap" style="flex: 1; overflow-y: auto; max-height: 280px; min-height: 200px; margin-bottom: 15px; border: 1px solid var(--border); border-radius: 4px;">
+          <table class="data-table" id="extract-editor-table">
+            <thead>
+              <tr>
+                <th style="width: 35px; text-align: center;"><input type="checkbox" id="extract-select-all" checked onchange="toggleSelectAllExtract(this)"/></th>
+                <th>英文原文 (ENG)</th>
+                <th>繁體中文 (CHT)</th>
+                <th style="width: 50px; text-align: center;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="extract-editor-tbody">
+              <!-- 動態 rows -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 匯入操作列 -->
+        <div style="display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--border); padding-top: 12px;">
+          <button class="btn btn-ghost" onclick="clearExtractEditor()" style="padding: 6px 12px;">重置表格</button>
+          <button class="btn btn-primary" onclick="submitExtractToDB()" style="padding: 6px 16px;">驗證並匯入資料庫</button>
+        </div>
+      </div>
+
+    </div>
   </section>
 
 </main>

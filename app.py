@@ -874,6 +874,190 @@ def api_pm_review_parse_reply():
         return jsonify({'ok': False, 'error': '無效的 JSON 檔案格式'}), 400
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
+# ──────────────────────────────────────────
+# 智慧文字提取 API (PDF & Image OCR)
+# ──────────────────────────────────────────
+
+HAS_VISION = False
+try:
+    import objc
+    from Cocoa import NSURL
+    from Vision import VNImageRequestHandler, VNRecognizeTextRequest
+    HAS_VISION = True
+except ImportError:
+    pass
+
+@app.route('/api/extract/pdf', methods=['POST'])
+def api_extract_pdf():
+    if 'file' not in request.files:
+        return jsonify({'ok': False, 'error': '未提供檔案'}), 400
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({'ok': False, 'error': '檔案名稱為空'}), 400
+        
+    filename = secure_filename(file.filename)
+    tmp_path = os.path.join(UPLOAD_DIR, f"extract_{uuid.uuid4().hex}_{filename}")
+    file.save(tmp_path)
+    
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(tmp_path)
+        pages_data = []
+        for i, page in enumerate(reader.pages):
+            text = page.extract_text() or ""
+            paragraphs = []
+            for line in text.split('\n'):
+                line = line.strip()
+                if line:
+                    paragraphs.append(line)
+            pages_data.append({
+                'page': i + 1,
+                'paragraphs': paragraphs
+            })
+            
+        return jsonify({
+            'ok': True,
+            'pages': pages_data
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+@app.route('/api/extract/ocr', methods=['POST'])
+def api_extract_ocr():
+    if 'file' not in request.files:
+        return jsonify({'ok': False, 'error': '未提供檔案'}), 400
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({'ok': False, 'error': '檔案名稱為空'}), 400
+        
+    if not HAS_VISION:
+        return jsonify({'ok': False, 'error': '本機環境不支援 macOS Vision OCR。請在 Mac 上執行專案。'}), 400
+        
+    filename = secure_filename(file.filename)
+    tmp_path = os.path.join(UPLOAD_DIR, f"ocr_{uuid.uuid4().hex}_{filename}")
+    file.save(tmp_path)
+    
+    try:
+        url = NSURL.fileURLWithPath_(tmp_path)
+        handler = VNImageRequestHandler.alloc().initWithURL_options_(url, None)
+        
+        results = []
+        def completion_handler(req, error):
+            if error:
+                print("Vision OCR error:", error)
+                return
+            observations = req.results()
+            if observations:
+                for obs in observations:
+                    candidates = obs.topCandidates_(1)
+                    if not candidates:
+                        continue
+                    text = candidates[0].string()
+                    box = obs.boundingBox()
+                    
+                    # Convert coordinates (bottom-left to top-left normalized)
+                    x = box.origin.x
+                    y = 1.0 - (box.origin.y + box.size.height)
+                    w = box.size.width
+                    h = box.size.height
+                    
+                    results.append({
+                        'text': text,
+                        'box': [x, y, w, h]
+                    })
+                    
+        ocr_req = VNRecognizeTextRequest.alloc().initWithCompletionHandler_(completion_handler)
+        ocr_req.setRecognitionLevel_(0)  # Accurate level
+        ocr_req.setRecognitionLanguages_(["zh-Hant", "en-US"])
+        
+        success, error = handler.performRequests_error_([ocr_req], None)
+        if not success:
+            return jsonify({'ok': False, 'error': f"Vision OCR failed: {error}"}), 500
+            
+        return jsonify({
+            'ok': True,
+            'blocks': results
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+@app.route('/api/extract/import', methods=['POST'])
+def api_extract_import():
+    data = request.json or {}
+    rows = data.get('rows', [])
+    
+    imported_count = 0
+    conflict_count = 0
+    skipped_count = 0
+    
+    for row in rows:
+        eng_val = row.get('ENG', '').strip() if row.get('ENG') is not None else ''
+        if not eng_val:
+            skipped_count += 1
+            continue
+            
+        product = row.get('product', '') or ''
+        chapter = row.get('chapter', '') or ''
+        
+        row_data = {'product': product, 'chapter': chapter, 'ENG': eng_val}
+        for code in LANG_CODES:
+            if code != 'ENG':
+                row_data[code] = row.get(code, '') or ''
+                
+        existing = db.lookup_eng(eng_val)
+        if not existing:
+            db.add(row_data)
+            imported_count += 1
+        else:
+            has_conflict_on_row = False
+            conflicting_langs = {}
+            non_conflicting_updates = {}
+            
+            for code in LANG_CODES:
+                if code == 'ENG':
+                    continue
+                import_translation = row_data.get(code, '') or ''
+                db_translation = existing.get(code, '') or ''
+                
+                if import_translation and db_translation:
+                    if import_translation != db_translation:
+                        has_conflict_on_row = True
+                        conflicting_langs[code] = (db_translation, import_translation)
+                elif import_translation and not db_translation:
+                    non_conflicting_updates[code] = import_translation
+                    
+            if has_conflict_on_row:
+                for lang, (db_val, import_val) in conflicting_langs.items():
+                    db.add_pending_conflict(
+                        product=product or existing.get('product', ''),
+                        chapter=chapter or existing.get('chapter', ''),
+                        eng_text=eng_val,
+                        lang_code=lang,
+                        db_val=db_val,
+                        import_val=import_val
+                    )
+                    conflict_count += 1
+            
+            if non_conflicting_updates:
+                db.update(existing['id'], non_conflicting_updates)
+                imported_count += 1
+                
+    return jsonify({
+        'ok': True,
+        'imported_count': imported_count,
+        'conflict_count': conflict_count,
+        'skipped_count': skipped_count,
+        'message': f'{imported_count} 筆資料已成功處理；{conflict_count} 個語言翻譯衝突已移至待處理佇列。'
+    })
 
 
 # ──────────────────────────────────────────
@@ -883,6 +1067,6 @@ def api_pm_review_parse_reply():
 if __name__ == '__main__':
     print('\n' + '='*50)
     print('  OM 多語言管理系統 啟動中...')
-    print('  請在瀏覽器開啟 http://127.0.0.1:5000')
+    print('  請在瀏覽器開啟 http://127.0.0.1:5001')
     print('='*50 + '\n')
-    app.run(debug=False, port=5000, host='127.0.0.1')
+    app.run(debug=False, port=5001, host='127.0.0.1')
