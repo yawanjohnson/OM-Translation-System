@@ -96,7 +96,7 @@ def extract_keywords(text):
     return keywords
 
 def align_blocks_to_table(table_rows, new_blocks, lang_code):
-    aligned_rows = list(table_rows)
+    aligned_rows = [dict(r) for r in table_rows] # Clean copy
     
     for block in new_blocks:
         text = block['text']
@@ -115,22 +115,46 @@ def align_blocks_to_table(table_rows, new_blocks, lang_code):
             
             best_score = 0
             for i, row in enumerate(aligned_rows):
-                eng_text = row.get('ENG', '')
-                eng_upper = eng_text.upper()
-                eng_label = eng_text.split(':')[0].strip().upper()
-                
                 score = 0
                 
-                # 1. Parenthesis match (strong weight)
-                for bp in block_parens:
-                    if bp in eng_label:
-                        score += 100
-                
-                # 2. General keyword match (lower weight)
-                for kw in keywords:
-                    if kw in eng_upper:
-                        score += 10
+                if lang_code != 'ENG':
+                    # Aligning translation to ENG row
+                    eng_text = row.get('ENG', '')
+                    eng_upper = eng_text.upper()
+                    eng_label = eng_text.split(':')[0].strip().upper()
+                    
+                    for bp in block_parens:
+                        if bp in eng_label:
+                            score += 100
+                    for kw in keywords:
+                        if kw in eng_upper:
+                            score += 10
+                else:
+                    # Aligning ENG to translation row (e.g. CHT, GER)
+                    ref_text = ''
+                    for key in row:
+                        if key != 'ENG' and row[key]:
+                            ref_text = row[key]
+                            break
+                            
+                    if ref_text:
+                        ref_upper = ref_text.upper()
+                        ref_label = ref_text.split(':')[0].strip().upper()
                         
+                        ref_parens = []
+                        ref_paren_matches = re.findall(r'\(([^)]+)\)', ref_text)
+                        for m in ref_paren_matches:
+                            word = m.strip().upper()
+                            if len(word) >= 3:
+                                ref_parens.append(word)
+                                
+                        for bp in block_parens:
+                            if bp in ref_label or bp in ref_parens:
+                                score += 100
+                        for kw in keywords:
+                            if kw in ref_upper:
+                                score += 10
+                                
                 if score > best_score:
                     best_score = score
                     matched_idx = i
@@ -290,7 +314,27 @@ def run_test():
     assert aligned_collision[0]['GER'] == "ZEIT (TIME): Stellen Sie Ihre Trainingszeit ein."
     # GER 'GESCHWINDIGKEIT (SPEED)' must go to Row 1 (exact parenthetical tag match has higher score than substring mention)
     assert aligned_collision[1]['GER'] == "GESCHWINDIGKEIT (SPEED): Wird in KM/H angezeigt."
-    print("✅ Keyword Collision and Scoring Match passed!")
+    # 7. Test Bidirectional Matching (German first, English second)
+    print("\nTesting Bidirectional Matching (German first, English second):")
+    initial_ger = [
+        {'GER': "ZEIT (TIME): Stellen Sie Ihre Trainingszeit ein."},
+        {'GER': "GESCHWINDIGKEIT (SPEED): Wird in KM/H angezeigt."}
+    ]
+    eng_blocks = [
+        {'text': "TIME: Set up your workout time. User could set up the speed."},
+        {'text': "SPEED: Set up treadmill speed."}
+    ]
+    aligned_bidirectional = align_blocks_to_table(initial_ger, eng_blocks, 'ENG')
+    print("Aligned bidirectional table:")
+    for i, r in enumerate(aligned_bidirectional):
+        print(f"  Row {i}: {r}")
+        
+    assert len(aligned_bidirectional) == 2
+    # ENG 'TIME' block should align to Row 0 ('ZEIT (TIME)')
+    assert aligned_bidirectional[0]['ENG'] == "TIME: Set up your workout time. User could set up the speed."
+    # ENG 'SPEED' block should align to Row 1 ('GESCHWINDIGKEIT (SPEED)')
+    assert aligned_bidirectional[1]['ENG'] == "SPEED: Set up treadmill speed."
+    print("✅ Bidirectional Matching passed!")
     
     print("\n🎉 ALL AUTOMATED ALIGNMENT TESTS PASSED SUCCESSFULLY! 🎉")
 

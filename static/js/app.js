@@ -1932,7 +1932,7 @@ function addExtractRow(langsData = {}) {
   
   let colsHtml = `
     <td>
-      <input type="text" id="extract-row-${idx}-eng" class="form-input" value="${esc(langsData['ENG'] || '')}" onfocus="setActiveInput(this.id)" placeholder="點擊格或雙擊選取文字..."/>
+      <input type="text" id="extract-row-${idx}-eng" class="form-input" autocomplete="off" value="${esc(langsData['ENG'] || '')}" onfocus="setActiveInput(this.id)" placeholder="點擊格或雙擊選取文字..."/>
     </td>
   `;
   
@@ -1940,7 +1940,7 @@ function addExtractRow(langsData = {}) {
     const lowerCode = code.toLowerCase();
     colsHtml += `
       <td>
-        <input type="text" id="extract-row-${idx}-${lowerCode}" class="form-input" value="${esc(langsData[code] || '')}" onfocus="setActiveInput(this.id)" placeholder="點擊格填入 ${code} 翻譯..."/>
+        <input type="text" id="extract-row-${idx}-${lowerCode}" class="form-input" autocomplete="off" value="${esc(langsData[code] || '')}" onfocus="setActiveInput(this.id)" placeholder="點擊格填入 ${code} 翻譯..."/>
       </td>
     `;
   });
@@ -2436,8 +2436,7 @@ function populateExtractColumn(langCode) {
     const text = block.text;
     let matchedIdx = -1;
     
-    // For non-ENG columns, we align using keyword matches against the ENG column
-    if (langCode !== 'ENG' && alignedRows.length > 0) {
+    if (alignedRows.length > 0) {
       const keywords = extractKeywords(text);
       const blockParens = [];
       const parenMatches = text.match(/\(([^)]+)\)/g);
@@ -2450,25 +2449,60 @@ function populateExtractColumn(langCode) {
       
       let bestScore = 0;
       for (let i = 0; i < alignedRows.length; i++) {
-        const engText = (alignedRows[i]['ENG'] || '');
-        const engUpper = engText.toUpperCase();
-        const engLabel = engText.split(':')[0].trim().toUpperCase();
-        
         let score = 0;
         
-        // 1. Parenthesis match (strong weight)
-        blockParens.forEach(bp => {
-          if (engLabel.includes(bp)) {
-            score += 100;
+        if (langCode !== 'ENG') {
+          // Aligning a translation (e.g. GER) to the ENG column
+          const engText = (alignedRows[i]['ENG'] || '');
+          const engUpper = engText.toUpperCase();
+          const engLabel = engText.split(':')[0].trim().toUpperCase();
+          
+          blockParens.forEach(bp => {
+            if (engLabel.includes(bp)) score += 100;
+          });
+          keywords.forEach(kw => {
+            if (engUpper.includes(kw)) score += 10;
+          });
+        } else {
+          // Aligning ENG to an existing translation column (e.g. GER, DUT)
+          // Find the first available translation text in this row to match against
+          let refText = '';
+          for (const key in alignedRows[i]) {
+            if (key !== 'ENG' && alignedRows[i][key]) {
+              refText = alignedRows[i][key];
+              break;
+            }
           }
-        });
-        
-        // 2. General keyword match (lower weight)
-        keywords.forEach(kw => {
-          if (engUpper.includes(kw)) {
-            score += 10;
+          
+          if (refText) {
+            const refUpper = refText.toUpperCase();
+            const refLabel = refText.split(':')[0].trim().toUpperCase();
+            
+            // Extract parenthesis from reference text
+            const refParens = [];
+            const refParenMatches = refText.match(/\(([^)]+)\)/g);
+            if (refParenMatches) {
+              refParenMatches.forEach(m => {
+                const word = m.slice(1, -1).trim().toUpperCase();
+                if (word.length >= 3) refParens.push(word);
+              });
+            }
+            
+            // If ENG parenthesis (like TIME) matches reference label/parenthesis (like ZEIT (TIME))
+            blockParens.forEach(bp => {
+              if (refLabel.includes(bp) || refParens.includes(bp)) {
+                score += 100;
+              }
+            });
+            
+            // If ENG general keywords match reference text
+            keywords.forEach(kw => {
+              if (refUpper.includes(kw)) {
+                score += 10;
+              }
+            });
           }
-        });
+        }
         
         if (score > bestScore) {
           bestScore = score;
@@ -2552,7 +2586,6 @@ function resizeOcrOverlays() {
 function prevExtractPage() {
   if (extractState.currentPage > 1) {
     extractState.currentPage--;
-    checkAndAutoPopulate();
     renderExtractPreview();
   }
 }
@@ -2561,7 +2594,6 @@ function prevExtractPage() {
 function nextExtractPage() {
   if (extractState.currentPage < extractState.pdfPages.length) {
     extractState.currentPage++;
-    checkAndAutoPopulate();
     renderExtractPreview();
   }
 }
