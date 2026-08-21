@@ -2056,6 +2056,7 @@ async function handleExtractUploadFromFiles(files) {
       const file = files[i];
       await processSingleExtractFile(file);
     }
+    hideLoading();
   } catch (e) {
     hideLoading();
     showToast('❌ 批次提取失敗：' + e.message, 'error');
