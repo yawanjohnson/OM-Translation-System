@@ -887,6 +887,38 @@ try:
 except ImportError:
     pass
 
+def detect_language(text):
+    import re
+    if not text:
+        return 'ENG'
+    text = text.lower()
+    # 1. Quick German accent character check
+    if any(c in text for c in ('ä', 'ö', 'ü', 'ß')):
+        return 'GER'
+        
+    # 2. Stop words intersection
+    STOP_WORDS = {
+        'GER': {'der', 'die', 'das', 'und', 'ist', 'in', 'zu', 'den', 'dem', 'mit', 'von', 'für', 'anzeigefenster', 'steigung'},
+        'ENG': {'the', 'and', 'is', 'in', 'to', 'of', 'for', 'on', 'with', 'at', 'incline', 'calories', 'speed', 'time', 'distance'},
+        'SPA': {'el', 'la', 'los', 'las', 'un', 'una', 'y', 'es', 'en', 'con', 'para', 'por'},
+        'CHT': set("的是在有個這我我們你們他們與或及以於"),
+        'CHS': set("的是在有个这我我们你们他们与或及以于")
+    }
+    
+    words = set(re.findall(r'[a-zA-Z\u00C0-\u024F]+', text))
+    scores = {}
+    for lang, sw in STOP_WORDS.items():
+        if lang in ('CHT', 'CHS'):
+            chars = set(text)
+            scores[lang] = len(chars.intersection(sw))
+        else:
+            scores[lang] = len(words.intersection(sw))
+            
+    max_lang = max(scores, key=scores.get)
+    if scores[max_lang] > 0:
+        return max_lang
+    return 'ENG'
+
 def clean_and_validate_extracted_text(text):
     import re
     if not text:
@@ -954,9 +986,13 @@ def api_extract_pdf():
                 if cleaned:
                     cleaned_paragraphs.append(cleaned)
                 
+            page_text = "\n".join(cleaned_paragraphs)
+            detected_lang = detect_language(page_text)
+            
             pages_data.append({
                 'page': i + 1,
-                'paragraphs': cleaned_paragraphs
+                'paragraphs': cleaned_paragraphs,
+                'detected_lang': detected_lang
             })
             
         return jsonify({
@@ -1026,8 +1062,12 @@ def api_extract_ocr():
         if not success:
             return jsonify({'ok': False, 'error': f"Vision OCR failed: {error}"}), 500
             
+        combined_text = "\n".join([b['text'] for b in results])
+        detected_lang = detect_language(combined_text)
+        
         return jsonify({
             'ok': True,
+            'detected_lang': detected_lang,
             'blocks': results
         })
     except Exception as e:

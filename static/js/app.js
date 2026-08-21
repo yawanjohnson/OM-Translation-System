@@ -166,7 +166,7 @@ function handleDrop(event, type) {
   } else if (type === 'pm-reply') {
     uploadPMReplyFromFile(file);
   } else if (type === 'extract') {
-    handleExtractUploadFromFile(file);
+    handleExtractUploadFromFiles(files);
   }
 }
 
@@ -1796,101 +1796,154 @@ function grabTextToActiveInput(text) {
 
 // Handle file upload
 async function handleExtractUpload(input) {
-  if (input.files && input.files[0]) {
-    handleExtractUploadFromFile(input.files[0]);
+  if (input.files && input.files.length > 0) {
+    await handleExtractUploadFromFiles(input.files);
   }
 }
 
-async function handleExtractUploadFromFile(file) {
-  const name = file.name.toLowerCase();
-  
-  const fd = new FormData();
-  fd.append('file', file);
-  
-  showLoading('讀取與解析文字中...');
+async function handleExtractUploadFromFiles(files) {
+  showLoading('讀取與解析多個檔案中...');
   try {
-    if (name.endsWith('.pdf')) {
-      extractState.fileType = 'pdf';
-      const res = await fetch('/api/extract/pdf', { method: 'POST', body: fd });
-      const data = await res.json();
-      hideLoading();
-      if (!data.ok) { showToast('❌ ' + data.error, 'error'); return; }
-      
-      extractState.pdfPages = data.pages;
-      extractState.currentPage = 1;
-      showToast('✅ PDF 文字撈取與智慧拼接成功！');
-      
-      // Auto-populate Page 1 ENG if toggle is checked
-      checkAndAutoPopulate();
-      
-      renderExtractPreview();
-      
-    } else if (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg')) {
-      extractState.fileType = 'image';
-      // Load local image preview using FileReader so we can display it instantly
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = document.getElementById('extract-ocr-img');
-        img.src = e.target.result;
-        img.onload = () => {
-          resizeOcrOverlays();
-        };
-      };
-      reader.readAsDataURL(file);
-      
-      const res = await fetch('/api/extract/ocr', { method: 'POST', body: fd });
-      const data = await res.json();
-      hideLoading();
-      if (!data.ok) { showToast('❌ ' + data.error, 'error'); return; }
-      
-      extractState.ocrBlocks = data.blocks;
-      showToast('✅ 圖片 OCR 辨識與座標定位成功！');
-      
-      // Auto-populate image OCR blocks if checked
-      checkAndAutoPopulate();
-      
-      renderExtractPreview();
-      
-    } else {
-      hideLoading();
-      showToast('❌ 不支援的檔案格式，請上傳 PDF 或圖片。', 'error');
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      await processSingleExtractFile(file);
     }
   } catch (e) {
     hideLoading();
-    showToast('❌ 文字提取失敗：' + e.message, 'error');
+    showToast('❌ 批次提取失敗：' + e.message, 'error');
   }
 }
 
-// Auto populate helper
-function checkAndAutoPopulate() {
+async function processSingleExtractFile(file) {
+  const name = file.name.toLowerCase();
+  const fd = new FormData();
+  fd.append('file', file);
+  
+  if (name.endsWith('.pdf')) {
+    extractState.fileType = 'pdf';
+    const res = await fetch('/api/extract/pdf', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!data.ok) { throw new Error(data.error); }
+    
+    extractState.pdfPages = data.pages;
+    extractState.currentPage = 1;
+    
+    alignExtractDataToTable();
+    renderExtractPreview();
+    
+  } else if (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg')) {
+    extractState.fileType = 'image';
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = document.getElementById('extract-ocr-img');
+      img.src = e.target.result;
+      img.onload = () => {
+        resizeOcrOverlays();
+      };
+    };
+    reader.readAsDataURL(file);
+    
+    const res = await fetch('/api/extract/ocr', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!data.ok) { throw new Error(data.error); }
+    
+    extractState.ocrBlocks = data.blocks;
+    extractState.ocrDetectedLang = data.detected_lang;
+    
+    alignExtractDataToTable();
+    renderExtractPreview();
+  }
+}
+
+// Extract keywords inside parenthesis or uppercase words
+function extractKeywords(text) {
+  const keywords = [];
+  const parenMatches = text.match(/\(([^)]+)\)/g);
+  if (parenMatches) {
+    parenMatches.forEach(m => {
+      const word = m.slice(1, -1).trim().toUpperCase();
+      if (word.length >= 3) {
+        keywords.push(word);
+      }
+    });
+  }
+  const upperMatches = text.match(/[A-Z]{3,}/g);
+  if (upperMatches) {
+    upperMatches.forEach(w => {
+      if (!keywords.includes(w)) {
+        keywords.push(w);
+      }
+    });
+  }
+  return keywords;
+}
+
+// Align new data blocks to existing rows automatically based on keywords matching
+function alignExtractDataToTable() {
   const autoPop = document.getElementById('extract-auto-populate');
   if (!autoPop || !autoPop.checked) return;
   
-  const select = document.getElementById('extract-auto-populate-lang');
-  const targetCode = select ? select.value : 'ENG';
-  
-  clearExtractEditor();
+  let blocks = [];
+  let langCode = 'ENG';
   
   if (extractState.fileType === 'pdf') {
     const pageData = extractState.pdfPages[extractState.currentPage - 1];
-    if (pageData && pageData.paragraphs.length > 0) {
-      pageData.paragraphs.forEach(para => {
-        const rowData = {};
-        rowData[targetCode] = para;
-        addExtractRow(rowData);
-      });
-      showToast(`💡 已自動填入第 ${extractState.currentPage} 頁的 ${pageData.paragraphs.length} 筆段落至 ${targetCode}！`, 'info');
+    if (pageData) {
+      blocks = pageData.paragraphs.map(p => ({ text: p }));
+      langCode = pageData.detected_lang || 'ENG';
     }
   } else if (extractState.fileType === 'image') {
-    if (extractState.ocrBlocks.length > 0) {
-      extractState.ocrBlocks.forEach(block => {
-        const rowData = {};
-        rowData[targetCode] = block.text;
-        addExtractRow(rowData);
-      });
-      showToast(`💡 已自動填入圖片中 ${extractState.ocrBlocks.length} 筆 OCR 原文至 ${targetCode}！`, 'info');
-    }
+    blocks = extractState.ocrBlocks;
+    langCode = extractState.ocrDetectedLang || 'ENG';
   }
+  
+  if (blocks.length === 0) return;
+  
+  // Enable column if not visible
+  if (!extractState.visibleLangs.includes(langCode) && langCode !== 'ENG') {
+    extractState.visibleLangs.push(langCode);
+    updateExtractTableHeader();
+    renderExtractLangCheckboxes();
+    updateAutoPopulateLangOptions();
+  }
+  
+  const currentRows = getExtractTableRowsData();
+  const isTableEmpty = currentRows.length === 0 || 
+                       (currentRows.length === 3 && currentRows.every(r => !r['ENG'] && !Object.values(r).some(v => v)));
+                       
+  const alignedRows = isTableEmpty ? [] : [...currentRows];
+  
+  blocks.forEach(block => {
+    const text = block.text;
+    let matchedIdx = -1;
+    
+    if (alignedRows.length > 0) {
+      const keywords = extractKeywords(text);
+      for (let i = 0; i < alignedRows.length; i++) {
+        const engText = (alignedRows[i]['ENG'] || '').toUpperCase();
+        const hasMatch = keywords.some(kw => engText.includes(kw));
+        if (hasMatch) {
+          matchedIdx = i;
+          break;
+        }
+      }
+    }
+    
+    if (matchedIdx !== -1) {
+      alignedRows[matchedIdx][langCode] = text;
+    } else {
+      const newRow = {};
+      newRow[langCode] = text;
+      alignedRows.push(newRow);
+    }
+  });
+  
+  clearExtractEditor();
+  alignedRows.forEach(row => {
+    addExtractRow(row);
+  });
+  
+  hideLoading();
 }
 
 // Render Preview Area
