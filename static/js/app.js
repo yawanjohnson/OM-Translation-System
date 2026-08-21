@@ -1484,7 +1484,8 @@ let extractState = {
   currentPage: 1,
   activeInputId: null, // ID of currently focused text input in table (e.g. 'extract-row-0-eng')
   rowCount: 0,
-  visibleLangs: [] // Default: empty array (NO CHT checked by default!)
+  visibleLangs: [], // Default: empty array (NO CHT checked by default!)
+  historyStack: [] // A stack of previous states for reverting merge operations: [ { fileId, pdfPages: [...], ocrBlocks: [...] } ]
 };
 
 // Initialize workspace when switching to tab
@@ -1557,6 +1558,7 @@ function switchActiveExtractFile(fileId) {
     }
   }
   renderExtractFilesGallery();
+  updateUndoButtonVisibility();
   renderExtractPreview();
 }
 
@@ -1564,6 +1566,9 @@ function switchActiveExtractFile(fileId) {
 function deleteExtractFile(event, fileId) {
   event.stopPropagation();
   delete extractState.uploadedFiles[fileId];
+  
+  // Remove associated history entries
+  extractState.historyStack = extractState.historyStack.filter(h => h.fileId !== fileId);
   
   if (extractState.activeFileId === fileId) {
     const keys = Object.keys(extractState.uploadedFiles);
@@ -1583,10 +1588,64 @@ function deleteExtractFile(event, fileId) {
       document.getElementById('extract-viewer-title').textContent = '📄 檔案預覽 (未上傳)';
     }
   }
+  updateUndoButtonVisibility();
   renderExtractFilesGallery();
   if (extractState.activeFileId) {
     renderExtractPreview();
   }
+}
+
+// Save current blocks/pages state of the active file to history stack (for Undo/Revert)
+function saveExtractHistory() {
+  const fileId = extractState.activeFileId;
+  const file = extractState.uploadedFiles[fileId];
+  if (!file) return;
+  
+  if (extractState.historyStack.length >= 15) {
+    extractState.historyStack.shift();
+  }
+  
+  extractState.historyStack.push({
+    fileId: fileId,
+    pdfPages: JSON.parse(JSON.stringify(file.pdfPages)),
+    ocrBlocks: JSON.parse(JSON.stringify(file.ocrBlocks))
+  });
+  
+  updateUndoButtonVisibility();
+}
+
+// Revert last merge action
+function undoExtractMerge() {
+  if (extractState.historyStack.length === 0) return;
+  
+  const prevState = extractState.historyStack.pop();
+  const file = extractState.uploadedFiles[prevState.fileId];
+  if (file) {
+    file.pdfPages = prevState.pdfPages;
+    file.ocrBlocks = prevState.ocrBlocks;
+    
+    // If the reverted file is currently active, sync it back to global state properties
+    if (extractState.activeFileId === prevState.fileId) {
+      extractState.fileType = file.fileType;
+      extractState.pdfPages = file.pdfPages;
+      extractState.ocrBlocks = file.ocrBlocks;
+    }
+  }
+  
+  updateUndoButtonVisibility();
+  alignExtractDataToTable();
+  renderExtractPreview();
+  showToast('↩ 已復原上一步合併段落操作！', 'info');
+}
+
+// Update undo button display state
+function updateUndoButtonVisibility() {
+  const btn = document.getElementById('extract-undo-btn');
+  if (!btn) return;
+  
+  // Only show undo button if there's any history entry belonging to the currently active file!
+  const hasHistoryForActiveFile = extractState.historyStack.some(h => h.fileId === extractState.activeFileId);
+  btn.style.display = hasHistoryForActiveFile ? 'inline-block' : 'none';
 }
 
 // Render dynamic checkboxes for translation columns
@@ -2197,6 +2256,7 @@ function renderExtractPreview() {
 
 // Merge a preview text block with the next one sequentially
 function mergeExtractBlockWithNext(index) {
+  saveExtractHistory();
   const fileId = extractState.activeFileId;
   const file = extractState.uploadedFiles[fileId];
   if (!file) return;

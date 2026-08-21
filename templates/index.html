@@ -615,10 +615,13 @@
       <div class="panel" style="min-height: 520px; display: flex; flex-direction: column;">
         <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 15px;">
           <h3 id="extract-viewer-title">📄 檔案預覽 (未上傳)</h3>
-          <div id="extract-page-controls" style="display: none; align-items: center; gap: 8px;">
-            <button class="btn btn-ghost btn-sm" onclick="prevExtractPage()" style="padding: 2px 8px;">◀</button>
-            <span id="extract-page-num" style="font-size: 13px; font-weight: bold;">第 1 頁 / 1 頁</span>
-            <button class="btn btn-ghost btn-sm" onclick="nextExtractPage()" style="padding: 2px 8px;">▶</button>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <button class="btn btn-ghost btn-sm" id="extract-undo-btn" onclick="undoExtractMerge()" style="display: none; padding: 2px 8px; color: var(--warning); border: 1px solid rgba(255, 165, 0, 0.3); border-radius: 4px; font-size: 11px;">↩ 復原合併 (Undo)</button>
+            <div id="extract-page-controls" style="display: none; align-items: center; gap: 8px;">
+              <button class="btn btn-ghost btn-sm" onclick="prevExtractPage()" style="padding: 2px 8px;">◀</button>
+              <span id="extract-page-num" style="font-size: 13px; font-weight: bold;">第 1 頁 / 1 頁</span>
+              <button class="btn btn-ghost btn-sm" onclick="nextExtractPage()" style="padding: 2px 8px;">▶</button>
+            </div>
           </div>
         </div>
         
