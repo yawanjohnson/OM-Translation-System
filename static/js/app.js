@@ -2067,8 +2067,31 @@ function renderExtractPreview() {
         const div = document.createElement('div');
         div.className = 'pdf-para-item';
         div.setAttribute('data-idx', index);
-        div.textContent = para;
+        
+        const textSpan = document.createElement('span');
+        textSpan.style.flex = '1';
+        textSpan.textContent = para;
+        div.appendChild(textSpan);
+        
         div.onclick = () => grabTextToActiveInput(para);
+        
+        // Merge button (if not last item)
+        if (index < pageData.paragraphs.length - 1) {
+          const btn = document.createElement('button');
+          btn.className = 'btn btn-ghost btn-sm';
+          btn.style.padding = '2px 6px';
+          btn.style.fontSize = '10px';
+          btn.style.height = 'auto';
+          btn.style.color = 'var(--accent)';
+          btn.style.border = '1px solid rgba(0, 102, 255, 0.15)';
+          btn.style.borderRadius = '4px';
+          btn.innerHTML = '🔗 合併下句';
+          btn.onclick = (e) => {
+            e.stopPropagation();
+            mergeExtractBlockWithNext(index);
+          };
+          div.appendChild(btn);
+        }
         
         // Synchronize Hover
         div.onmouseenter = () => highlightTableRow(index, true);
@@ -2081,8 +2104,9 @@ function renderExtractPreview() {
     }
     
   } else if (extractState.fileType === 'image') {
-    title.textContent = `🖼️ 截圖 OCR 標記 (點擊區塊複製)`;
+    title.textContent = `🖼️ 截圖 OCR 標記與文字清單`;
     canvasContainer.style.display = 'block';
+    pdfList.style.display = 'flex'; // Display cards underneath image
     
     // Clear old overlays
     const overlays = document.getElementById('extract-ocr-overlays');
@@ -2114,9 +2138,103 @@ function renderExtractPreview() {
       overlays.appendChild(div);
     });
     
+    // Render text cards under the image!
+    pdfList.innerHTML = '';
+    if (extractState.ocrBlocks.length > 0) {
+      const headerLabel = document.createElement('div');
+      headerLabel.style.fontSize = '11px';
+      headerLabel.style.color = 'var(--text-muted)';
+      headerLabel.style.marginBottom = '6px';
+      headerLabel.style.textTransform = 'uppercase';
+      headerLabel.style.letterSpacing = '0.5px';
+      headerLabel.textContent = '圖片文字清單 (OCR Blocks List)';
+      pdfList.appendChild(headerLabel);
+      
+      extractState.ocrBlocks.forEach((block, index) => {
+        const div = document.createElement('div');
+        div.className = 'pdf-para-item';
+        div.setAttribute('data-idx', index);
+        
+        const textSpan = document.createElement('span');
+        textSpan.style.flex = '1';
+        textSpan.textContent = block.text;
+        div.appendChild(textSpan);
+        
+        div.onclick = () => grabTextToActiveInput(block.text);
+        
+        // Merge button (if not last item)
+        if (index < extractState.ocrBlocks.length - 1) {
+          const btn = document.createElement('button');
+          btn.className = 'btn btn-ghost btn-sm';
+          btn.style.padding = '2px 6px';
+          btn.style.fontSize = '10px';
+          btn.style.height = 'auto';
+          btn.style.color = 'var(--accent)';
+          btn.style.border = '1px solid rgba(0, 102, 255, 0.15)';
+          btn.style.borderRadius = '4px';
+          btn.innerHTML = '🔗 合併下句';
+          btn.onclick = (e) => {
+            e.stopPropagation();
+            mergeExtractBlockWithNext(index);
+          };
+          div.appendChild(btn);
+        }
+        
+        // Synchronize Hover
+        div.onmouseenter = () => highlightTableRow(index, true);
+        div.onmouseleave = () => highlightTableRow(index, false);
+        
+        pdfList.appendChild(div);
+      });
+    } else {
+      pdfList.innerHTML = '<div class="empty-cell" style="padding: 20px;">圖片中無可辨識文字段落</div>';
+    }
+    
     // Recalculate overlay layout coordinates over the scale image
     setTimeout(resizeOcrOverlays, 100);
   }
+}
+
+// Merge a preview text block with the next one sequentially
+function mergeExtractBlockWithNext(index) {
+  const fileId = extractState.activeFileId;
+  const file = extractState.uploadedFiles[fileId];
+  if (!file) return;
+  
+  if (file.fileType === 'pdf') {
+    const pageData = file.pdfPages[extractState.currentPage - 1];
+    if (pageData && pageData.paragraphs[index] && pageData.paragraphs[index + 1]) {
+      const t1 = pageData.paragraphs[index];
+      const t2 = pageData.paragraphs[index + 1];
+      const needsSpace = /[a-zA-Z\u00C0-\u024F]$/.test(t1) && /^[a-zA-Z\u00C0-\u024F]/.test(t2);
+      pageData.paragraphs[index] = t1 + (needsSpace ? ' ' : '') + t2;
+      pageData.paragraphs.splice(index + 1, 1);
+      
+      extractState.pdfPages = file.pdfPages;
+    }
+  } else if (file.fileType === 'image') {
+    if (file.ocrBlocks[index] && file.ocrBlocks[index + 1]) {
+      const b1 = file.ocrBlocks[index];
+      const b2 = file.ocrBlocks[index + 1];
+      const needsSpace = /[a-zA-Z\u00C0-\u024F]$/.test(b1.text) && /^[a-zA-Z\u00C0-\u024F]/.test(b2.text);
+      b1.text = b1.text + (needsSpace ? ' ' : '') + b2.text;
+      
+      // Combine bounding box rectangles
+      const box1 = b1.box;
+      const box2 = b2.box;
+      const x1 = Math.min(box1[0], box2[0]);
+      const y1 = Math.min(box1[1], box2[1]);
+      const x2 = Math.max(box1[0] + box1[2], box2[0] + box2[2]);
+      const y2 = Math.max(box1[1] + box1[3], box2[1] + box2[3]);
+      b1.box = [x1, y1, x2 - x1, y2 - y1];
+      
+      file.ocrBlocks.splice(index + 1, 1);
+      extractState.ocrBlocks = file.ocrBlocks;
+    }
+  }
+  
+  alignExtractDataToTable();
+  renderExtractPreview();
 }
 
 // Adjust overlays to match scaling of responsive image preview

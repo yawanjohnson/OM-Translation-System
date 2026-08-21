@@ -43,6 +43,42 @@ def detect_language(text):
         return max_lang
     return 'ENG'
 
+def clean_and_validate_extracted_text(text):
+    import re
+    if not text:
+        return None
+    text = text.strip()
+    
+    # 1. Must contain at least one Chinese character, OR at least one word (with letters and length >= 2)
+    has_chinese = any('\u4e00' <= c <= '\u9fff' for c in text)
+    has_word = re.search(r'\b[a-zA-Z\u00C0-\u024F]{2,}\b', text)
+    if not (has_chinese or has_word):
+        return None
+        
+    # 2. Strip leading bullets, layout decorations, and common list items
+    cleaned = re.sub(r'^[•▪▲⏰■○●□◇◆▫★☆☞☞▶▷➔➜\-\*\+•\s]+', '', text)
+    cleaned = cleaned.strip()
+    if not cleaned:
+        return None
+    return cleaned
+
+def merge_blocks(blocks, index):
+    if index < 0 or index >= len(blocks) - 1:
+        return blocks
+    b1 = blocks[index]
+    b2 = blocks[index + 1]
+    
+    t1 = b1['text']
+    t2 = b2['text']
+    
+    # Concatenate with space if both end/start with western alphabetical characters
+    needs_space = re.search(r'[a-zA-Z\u00C0-\u024F]$', t1) and re.match(r'^[a-zA-Z\u00C0-\u024F]', t2)
+    b1['text'] = t1 + (" " if needs_space else "") + t2
+    
+    # Remove the next block
+    blocks.pop(index + 1)
+    return blocks
+
 def extract_keywords(text):
     keywords = []
     # Match words inside parenthesis
@@ -87,6 +123,32 @@ def align_blocks_to_table(table_rows, new_blocks, lang_code):
 
 def run_test():
     print("=== STARTING SMART EXTRACTION E2E AUTOMATED ALIGNMENT TEST ===")
+    
+    # 0. Test Strict Text Validation and Sanitization (Unit number, symbols, Units filter)
+    print("\nTesting Strict Text Filtering (Noise reduction):")
+    assert clean_and_validate_extracted_text("•") is None
+    assert clean_and_validate_extracted_text("12.5") is None
+    assert clean_and_validate_extracted_text("1:00") is None
+    assert clean_and_validate_extracted_text("• 1,200") is None
+    assert clean_and_validate_extracted_text("---") is None
+    
+    # Good strings should pass:
+    assert clean_and_validate_extracted_text("ZEIT") == "ZEIT"
+    assert clean_and_validate_extracted_text("時間") == "時間"
+    assert clean_and_validate_extracted_text("• ZEIT (TIME)") == "ZEIT (TIME)"  # Strips bullet
+    print("✅ Strict Text Filtering passed!")
+    
+    # 0.5. Test Source-Level Block Merging (with spacing verification)
+    print("\nTesting Source-Level Block Merging:")
+    test_blocks = [
+        {'text': "ZEIT (TIME): Stellen Sie Ihre"},
+        {'text': "Trainingszeit ein."}
+    ]
+    merged = merge_blocks(test_blocks, 0)
+    print(f"Merged blocks: {merged}")
+    assert len(merged) == 1
+    assert merged[0]['text'] == "ZEIT (TIME): Stellen Sie Ihre Trainingszeit ein."
+    print("✅ Source-Level Block Merging passed!")
     
     # 1. Test Language Detection
     print("\nTesting Language Detection:")

@@ -938,10 +938,14 @@ def clean_and_validate_extracted_text(text):
     if not text:
         return None
     text = text.strip()
-    # Must contain at least one Latin, accented European, or Chinese character
-    if not re.search(r'[a-zA-Z\u00C0-\u024F\u4e00-\u9fff]', text):
+    
+    # 1. Must contain at least one Chinese character, OR at least one word (with letters and length >= 2)
+    has_chinese = any('\u4e00' <= c <= '\u9fff' for c in text)
+    has_word = re.search(r'\b[a-zA-Z\u00C0-\u024F]{2,}\b', text)
+    if not (has_chinese or has_word):
         return None
-    # Strip leading bullets, layout decorations, and common list items
+        
+    # 2. Strip leading bullets, layout decorations, and common list items
     cleaned = re.sub(r'^[•▪▲⏰■○●□◇◆▫★☆☞☞▶▷➔➜\-\*\+•\s]+', '', text)
     cleaned = cleaned.strip()
     if not cleaned:
