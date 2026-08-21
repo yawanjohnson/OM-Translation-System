@@ -165,6 +165,31 @@ class DBManager:
             updated_at  TEXT DEFAULT (datetime('now','localtime'))
         );
         CREATE INDEX IF NOT EXISTS idx_eng ON translations ("ENG");
+
+        CREATE TABLE IF NOT EXISTS pending_conflicts (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            import_time   TEXT DEFAULT (datetime('now','localtime')),
+            product       TEXT DEFAULT "",
+            chapter       TEXT DEFAULT "",
+            eng_text      TEXT,
+            lang_code     TEXT,
+            db_val        TEXT,
+            import_val    TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_pending_eng ON pending_conflicts (eng_text);
+
+        CREATE TABLE IF NOT EXISTS conflict_logs (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id      TEXT,
+            eng_text      TEXT,
+            lang_code     TEXT,
+            db_val        TEXT,
+            import_val    TEXT,
+            chosen_val    TEXT,
+            decision      TEXT,
+            resolved_at   TEXT DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_log_eng ON conflict_logs (eng_text);
         """
         with self._get_conn() as conn:
             conn.executescript(create_sql)
@@ -446,3 +471,69 @@ class DBManager:
                 ).fetchone()[0]
                 lang_counts[code] = count
         return {'total': total, 'by_language': lang_counts}
+
+    # ------------------------------------------------------------------ #
+    # 待處理衝突 (Pending Conflicts) 與 衝突歷史紀錄 (Conflict Logs) 方法
+    # ------------------------------------------------------------------ #
+
+    def add_pending_conflict(self, product: str, chapter: str, eng_text: str,
+                             lang_code: str, db_val: str, import_val: str) -> int:
+        sql = """
+        INSERT INTO pending_conflicts (product, chapter, eng_text, lang_code, db_val, import_val)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """
+        with self._get_conn() as conn:
+            cur = conn.execute(sql, (product, chapter, eng_text, lang_code, db_val, import_val))
+            return cur.lastrowid
+
+    def get_pending_conflicts(self) -> list:
+        with self._get_conn() as conn:
+            rows = conn.execute("SELECT * FROM pending_conflicts ORDER BY id DESC").fetchall()
+            return [dict(r) for r in rows]
+
+    def get_pending_conflict(self, pending_id: int) -> dict | None:
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM pending_conflicts WHERE id = ?", (pending_id,)).fetchone()
+            return dict(row) if row else None
+
+    def delete_pending_conflict(self, pending_id: int) -> bool:
+        with self._get_conn() as conn:
+            cur = conn.execute("DELETE FROM pending_conflicts WHERE id = ?", (pending_id,))
+            return cur.rowcount > 0
+
+    def add_conflict_log(self, batch_id: str, eng_text: str, lang_code: str,
+                         db_val: str, import_val: str, chosen_val: str, decision: str) -> int:
+        sql = """
+        INSERT INTO conflict_logs (batch_id, eng_text, lang_code, db_val, import_val, chosen_val, decision)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """
+        with self._get_conn() as conn:
+            cur = conn.execute(sql, (batch_id, eng_text, lang_code, db_val, import_val, chosen_val, decision))
+            return cur.lastrowid
+
+    def get_conflict_logs(self, query: str = '', lang_code: str = '', page: int = 1, per_page: int = 50) -> dict:
+        where_clauses = []
+        params = []
+        if query:
+            where_clauses.append("(eng_text LIKE ? OR db_val LIKE ? OR import_val LIKE ? OR chosen_val LIKE ?)")
+            params.extend([f"%{query}%"] * 4)
+        if lang_code:
+            where_clauses.append("lang_code = ?")
+            params.append(lang_code)
+
+        where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+        
+        with self._get_conn() as conn:
+            total = conn.execute(f"SELECT COUNT(*) FROM conflict_logs {where_sql}", params).fetchone()[0]
+            offset = (page - 1) * per_page
+            rows = conn.execute(
+                f"SELECT * FROM conflict_logs {where_sql} ORDER BY id DESC LIMIT ? OFFSET ?",
+                params + [per_page, offset]
+            ).fetchall()
+            
+        return {
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'items': [dict(r) for r in rows]
+        }

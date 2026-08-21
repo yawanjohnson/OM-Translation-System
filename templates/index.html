@@ -38,6 +38,11 @@
       <span class="nav-icon">🔁</span>
       <span class="nav-label">套用語言</span>
     </button>
+    <button class="nav-item" data-tab="conflict" id="nav-conflict">
+      <span class="nav-icon">⚠️</span>
+      <span class="nav-label">衝突管理</span>
+      <span class="badge-red" id="conflict-badge" style="display:none">0</span>
+    </button>
   </nav>
 
   <div class="sidebar-footer">
@@ -393,6 +398,98 @@
         </div>
       </div>
     </div>
+  </section>
+  
+  <!-- ════════════════════════════════════ -->
+  <!-- TAB 5: 衝突管理                     -->
+  <!-- ════════════════════════════════════ -->
+  <section class="tab-content" id="tab-conflict">
+    
+    <!-- 頂部切換子分頁 (待處理 / 歷史紀錄) -->
+    <div class="panel-header mb16" style="border-bottom: 1px solid var(--border-color); padding-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
+      <div style="display:flex; gap:16px;">
+        <button class="btn btn-primary btn-sm" id="btn-show-pending" onclick="switchConflictSubTab('pending')">待處理衝突</button>
+        <button class="btn btn-outline btn-sm" id="btn-show-history" onclick="switchConflictSubTab('history')">歷史解決日誌</button>
+      </div>
+    </div>
+
+    <!-- 待處理衝突清單 -->
+    <div id="conflict-pending-panel" class="panel">
+      <div class="panel-header" style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <h2 class="panel-title mb0">待處理翻譯衝突</h2>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-outline btn-sm" onclick="setAllPendingDecisions('KEEP_DB')">全部保留舊翻譯</button>
+          <button class="btn btn-outline btn-sm" onclick="setAllPendingDecisions('KEEP_IMPORT')">全部套用新翻譯</button>
+          <button class="btn btn-primary btn-sm" onclick="submitResolutions()" style="margin-left: 8px;">確認解決並套用</button>
+        </div>
+      </div>
+
+      <!-- 搜尋欄 (待處理衝突即時篩選) -->
+      <div class="search-bar-wrap mb16" style="justify-content: flex-start; max-width: 480px; margin-bottom: 12px;">
+        <div class="search-bar" style="width: 100%;">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="conflict-pending-search" class="search-input" placeholder="搜尋英文原文、現有或匯入翻譯..." onkeyup="filterPendingConflicts()"/>
+          <button class="btn btn-ghost btn-sm" onclick="clearPendingConflictSearch()" style="padding: 2px 6px; font-size: 11px;">清除</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="data-table" id="conflict-pending-table">
+          <thead>
+            <tr>
+              <th style="width: 50px;">#</th>
+              <th style="width: 140px;">型號/章節</th>
+              <th>英文原文 (ENG)</th>
+              <th style="width: 80px;">語言</th>
+              <th>資料庫現有 (DB)</th>
+              <th>本次匯入 (Import)</th>
+              <th style="width: 220px; text-align: center;">決策解決</th>
+            </tr>
+          </thead>
+          <tbody id="conflict-pending-tbody">
+            <tr><td colspan="7" class="empty-cell">尚無待處理的衝突項目</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 歷史解決日誌 -->
+    <div id="conflict-history-panel" class="panel" style="display:none">
+      <div class="search-bar-wrap" style="margin-bottom: 16px;">
+        <div class="search-bar" style="width: 100%;">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="conflict-log-search" class="search-input" placeholder="搜尋英文或翻譯文字..." onkeyup="searchConflictLogs()"/>
+          <select id="conflict-log-lang" class="search-lang-select" onchange="searchConflictLogs()">
+            <option value="">全部語言</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="searchConflictLogs()">搜尋</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="data-table" id="conflict-history-table">
+          <thead>
+            <tr>
+              <th style="width: 50px;">#</th>
+              <th>解決時間</th>
+              <th>批次 ID</th>
+              <th>英文原文 (ENG)</th>
+              <th style="width: 80px;">語言</th>
+              <th>原資料庫 (DB)</th>
+              <th>匯入新版 (Import)</th>
+              <th>最終保留 (Chosen)</th>
+              <th style="width: 100px;">解決決策</th>
+            </tr>
+          </thead>
+          <tbody id="conflict-history-tbody">
+            <tr><td colspan="9" class="empty-cell">無歷史解決紀錄</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- 分頁 -->
+      <div class="pagination" id="conflict-log-pagination"></div>
+    </div>
+
   </section>
 
 </main>

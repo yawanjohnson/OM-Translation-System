@@ -140,6 +140,200 @@ def api_import_excel():
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
+@app.route('/api/import/excel-with-conflicts', methods=['POST'])
+def api_import_excel_with_conflicts():
+    """
+    匯入 Excel/CSV 對照表，執行衝突檢測分流：
+    - 無衝突的資料直接寫入/更新資料庫。
+    - 有衝突的資料（英文相同但翻譯不同）寫入 pending_conflicts 待處理表。
+    """
+    if 'file' not in request.files:
+        return jsonify({'ok': False, 'error': '請上傳檔案'}), 400
+    try:
+        path = save_upload(request.files['file'], ALLOWED_EXCEL)
+        rows = import_excel(path)
+        os.remove(path)
+        
+        # 檢查是否有 ENG 欄位
+        has_eng_column = any('ENG' in r for r in rows)
+        if rows and not has_eng_column:
+            return jsonify({
+                'ok': False, 
+                'error': '檔案中未偵測到「英文 (ENG)」欄位，無法進行翻譯對照。請確認第一列欄位名稱。'
+            }), 400
+
+        imported_count = 0
+        conflict_count = 0
+        skipped_count = 0
+        
+        for data in rows:
+            eng_val = data.get('ENG', '').strip() if 'ENG' in data and data['ENG'] is not None else ''
+            if not eng_val:
+                skipped_count += 1
+                continue
+                
+            product = data.get('product', '') or ''
+            chapter = data.get('chapter', '') or ''
+            
+            existing = db.lookup_eng(eng_val)
+            if not existing:
+                # 全新條目：直接寫入 translations 表
+                db.add(data)
+                imported_count += 1
+            else:
+                # 存在舊條目：比對各國語言翻譯是否衝突
+                has_conflict_on_row = False
+                conflicting_langs = {}
+                non_conflicting_updates = {}
+                
+                for code in LANG_CODES:
+                    if code == 'ENG':
+                        continue
+                    excel_translation = data.get(code, '')
+                    if excel_translation is not None:
+                        excel_translation = str(excel_translation).strip()
+                    else:
+                        excel_translation = ''
+                        
+                    db_translation = existing.get(code, '') or ''
+                    
+                    if excel_translation and db_translation:
+                        # 兩者皆有翻譯，但字串不相同 -> 衝突！
+                        if excel_translation != db_translation:
+                            has_conflict_on_row = True
+                            conflicting_langs[code] = (db_translation, excel_translation)
+                    elif excel_translation and not db_translation:
+                        # Excel 有新翻譯，資料庫是空的 -> 可以直接補齊，不視為衝突
+                        non_conflicting_updates[code] = excel_translation
+                
+                if has_conflict_on_row:
+                    # 寫入待處理衝突表
+                    for lang, (db_val, import_val) in conflicting_langs.items():
+                        db.add_pending_conflict(
+                            product=product or existing.get('product', ''),
+                            chapter=chapter or existing.get('chapter', ''),
+                            eng_text=eng_val,
+                            lang_code=lang,
+                            db_val=db_val,
+                            import_val=import_val
+                        )
+                        conflict_count += 1
+                    # 對於此列中無衝突的新翻譯（例如其他語言有補齊的），我們先寫入 translations 表
+                    if non_conflicting_updates:
+                        db.update(existing['id'], non_conflicting_updates)
+                else:
+                    # 無任何語言翻譯衝突，直接更新 translations（包含補齊空白的翻譯，或 product/chapter 更新）
+                    update_data = {}
+                    if product: update_data['product'] = product
+                    if chapter: update_data['chapter'] = chapter
+                    for code, val in non_conflicting_updates.items():
+                        update_data[code] = val
+                        
+                    if update_data:
+                        db.update(existing['id'], update_data)
+                    imported_count += 1
+                    
+        return jsonify({
+            'ok': True,
+            'imported_count': imported_count,
+            'conflict_count': conflict_count,
+            'skipped_count': skipped_count,
+            'message': f'{imported_count} 筆資料已成功處理；{conflict_count} 個語言翻譯衝突已移至待處理佇列。'
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({'ok': False, 'error': str(e), 'detail': traceback.format_exc()}), 500
+
+
+@app.route('/api/import/pending-conflicts', methods=['GET'])
+def api_get_pending_conflicts():
+    """獲取待處理衝突清單"""
+    try:
+        conflicts = db.get_pending_conflicts()
+        return jsonify({'ok': True, 'conflicts': conflicts, 'count': len(conflicts)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/import/resolve-conflicts', methods=['POST'])
+def api_resolve_conflicts():
+    """
+    提交衝突解決決策：
+    Body: {
+        "resolutions": [
+            { "pending_id": 12, "decision": "KEEP_IMPORT" },
+            { "pending_id": 13, "decision": "KEEP_DB" }
+        ]
+    }
+    """
+    data = request.json or {}
+    resolutions = data.get('resolutions', [])
+    if not resolutions:
+        return jsonify({'ok': False, 'error': '未提供任何解決方案'}), 400
+        
+    try:
+        resolved_count = 0
+        batch_id = uuid.uuid4().hex[:8]
+        
+        for res in resolutions:
+            pid = res.get('pending_id')
+            decision = res.get('decision') # 'KEEP_IMPORT' or 'KEEP_DB'
+            
+            if not pid or not decision:
+                continue
+                
+            conflict = db.get_pending_conflict(pid)
+            if not conflict:
+                continue
+                
+            eng_text = conflict['eng_text']
+            lang_code = conflict['lang_code']
+            db_val = conflict['db_val']
+            import_val = conflict['import_val']
+            
+            chosen_val = import_val if decision == 'KEEP_IMPORT' else db_val
+            
+            # 1. 如果選擇匯入新版，更新 translations 表中對應翻譯
+            if decision == 'KEEP_IMPORT':
+                existing = db.lookup_eng(eng_text)
+                if existing:
+                    db.update(existing['id'], {lang_code: chosen_val})
+                    
+            # 2. 寫入衝突日誌表
+            db.add_conflict_log(
+                batch_id=batch_id,
+                eng_text=eng_text,
+                lang_code=lang_code,
+                db_val=db_val,
+                import_val=import_val,
+                chosen_val=chosen_val,
+                decision=decision
+            )
+            
+            # 3. 自 pending_conflicts 刪除
+            db.delete_pending_conflict(pid)
+            resolved_count += 1
+            
+        return jsonify({'ok': True, 'resolved_count': resolved_count, 'batch_id': batch_id})
+    except Exception as e:
+        import traceback
+        return jsonify({'ok': False, 'error': str(e), 'detail': traceback.format_exc()}), 500
+
+
+@app.route('/api/import/conflict-logs', methods=['GET'])
+def api_get_conflict_logs():
+    """獲取已解決衝突的歷史紀錄"""
+    q = request.args.get('q', '')
+    lang = request.args.get('lang', '')
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('per_page', 50))
+    try:
+        result = db.get_conflict_logs(query=q, lang_code=lang, page=page, per_page=per_page)
+        return jsonify({'ok': True, **result})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 @app.route('/api/import/idml-preview', methods=['POST'])
 def api_import_idml_preview():
     """預覽 IDML 萃取結果（尚未存入資料庫）。"""

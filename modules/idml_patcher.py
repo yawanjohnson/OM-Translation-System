@@ -626,19 +626,35 @@ def _replace_in_paragraph(
             return 1
         return 0
 
-    # --- 非 exact_match 模式 (子字串模糊匹配) ---
-    if find not in full_text:
+    # --- 非 exact_match 模式 (子字串模糊匹配，支援定位點與大小寫容錯) ---
+    # 1. 產生無空白的 find 字串
+    norm_find = _normalize_text(find)
+    spaceless_find = re.sub(r'\s+', '', norm_find)
+    if not spaceless_find:
         return 0
-    effective_find = find
 
-    match_indices = []
+    # 2. 建立無空白的 full_text 映射表，對應回原始 char_map 中的索引
+    spaceless_full = ""
+    orig_indices = []
+    for idx, item in enumerate(char_map):
+        char = item['char']
+        # 忽略所有換行、定位點與空白控制字元
+        if char.isspace() or ord(char) < 32 or char in ('\xa0', '\u2002', '\u2003', '\u2009', '\u2028', '\u2029', '\u3000'):
+            continue
+        spaceless_full += char.lower()
+        orig_indices.append(idx)
+
+    # 3. 搜尋匹配區間
+    match_indices = []  # 儲存 (orig_start, orig_end) 區間元組
     start = 0
     while True:
-        idx = full_text.find(effective_find, start)
+        idx = spaceless_full.find(spaceless_find, start)
         if idx == -1:
             break
-        match_indices.append(idx)
-        start = idx + len(effective_find)
+        orig_start = orig_indices[idx]
+        orig_end = orig_indices[idx + len(spaceless_find) - 1] + 1
+        match_indices.append((orig_start, orig_end))
+        start = idx + len(spaceless_find)
 
     if not match_indices:
         return 0
@@ -652,12 +668,13 @@ def _replace_in_paragraph(
             content_chars[content][item['index']] = item['char']
 
     marked_csrs = set()
-    for idx in match_indices:
-        match_items = char_map[idx : idx + len(effective_find)]
-
+    for orig_start, orig_end in match_indices:
+        match_items = char_map[orig_start : orig_end]
         first_item = match_items[0]
         first_content = first_item['content']
         first_idx = first_item['index']
+        effective_find = "".join([item['char'] for item in match_items])
+        idx = orig_start
 
         # Check if colons exist in both effective_find and replace to preserve title/body split
         orig_colon_pos = effective_find.find(':')

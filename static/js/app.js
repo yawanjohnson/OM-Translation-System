@@ -58,6 +58,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initApplyLangSelector();
   loadDBStats();
   searchDB();
+  updateConflictBadge();
 });
 
 async function loadLangInfo() {
@@ -119,6 +120,7 @@ const TAB_TITLES = {
   database: '多語言資料庫',
   import:   '匯入資料',
   apply:    '套用語言到 IDML',
+  conflict: '翻譯衝突管理',
 };
 
 document.querySelectorAll('.nav-item').forEach(btn => {
@@ -130,6 +132,10 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     document.getElementById(`tab-${tab}`).classList.add('active');
     document.getElementById('topbar-title').textContent = TAB_TITLES[tab];
     if (tab === 'database') { searchDB(); loadDBStats(); }
+    if (tab === 'conflict') {
+      switchConflictSubTab('pending');
+      loadConflictLogLanguages();
+    }
   });
 });
 
@@ -859,14 +865,19 @@ async function importExcelFromFile(file) {
   const fd = new FormData();
   fd.append('file', file);
   try {
-    const res  = await fetch('/api/import/excel', { method: 'POST', body: fd });
+    const res  = await fetch('/api/import/excel-with-conflicts', { method: 'POST', body: fd });
     const data = await res.json();
     hideLoading();
     const el = document.getElementById('excel-import-result');
     if (data.ok) {
       let html = `<div class="alert alert-success">
-        ✅ 匯入完成：新增 ${data.added} 筆 / 更新 ${data.updated} 筆 / 略過 ${data.skipped} 筆
+        ✅ 處理完成：已匯入/更新 ${data.imported_count} 筆。
       </div>`;
+      if (data.conflict_count > 0) {
+        html += `<div class="alert alert-error mt" style="text-align: left; background: rgba(248,81,73,0.1); border-left: 4px solid var(--error-text); padding: 12px; border-radius: 4px;">
+          ⚠️ 有 <strong>${data.conflict_count}</strong> 筆翻譯與資料庫現存內容發生衝突，已被移至左側選單的 <strong style="color: var(--error-text);">「衝突管理」</strong> 佇列，待您稍後解決。
+        </div>`;
+      }
       if (data.skipped_details && data.skipped_details.length > 0) {
         html += `<div class="import-skipped-details mt12" style="background: rgba(245, 158, 11, 0.1); border-left: 4px solid var(--warning-text); padding: 12px; border-radius: 4px; max-height: 250px; overflow-y: auto; text-align: left;">
           <h4 style="margin: 0 0 8px 0; color: var(--warning-text); font-size: 14px; font-weight: bold; display: flex; align-items: center; gap: 6px;">
@@ -879,6 +890,7 @@ async function importExcelFromFile(file) {
       }
       el.innerHTML = html;
       loadDBStats();
+      updateConflictBadge();
       showToast('✅ Excel 匯入成功');
     } else {
       el.innerHTML = `<div class="alert alert-error">❌ ${data.error}</div>`;
@@ -1125,4 +1137,330 @@ function esc(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// ──────────────────────────────────────────────────────
+// TAB 5: 衝突管理 (Conflict Management)
+// ──────────────────────────────────────────────────────
+let conflictLogPage = 1;
+
+function switchConflictSubTab(subTab) {
+  const pendingPanel = document.getElementById('conflict-pending-panel');
+  const historyPanel = document.getElementById('conflict-history-panel');
+  const btnPending = document.getElementById('btn-show-pending');
+  const btnHistory = document.getElementById('btn-show-history');
+
+  if (subTab === 'pending') {
+    pendingPanel.style.display = 'block';
+    historyPanel.style.display = 'none';
+    btnPending.className = 'btn btn-primary btn-sm';
+    btnHistory.className = 'btn btn-outline btn-sm';
+    loadPendingConflicts();
+  } else {
+    pendingPanel.style.display = 'none';
+    historyPanel.style.display = 'block';
+    btnPending.className = 'btn btn-outline btn-sm';
+    btnHistory.className = 'btn btn-primary btn-sm';
+    searchConflictLogs();
+  }
+}
+
+async function updateConflictBadge() {
+  try {
+    const res = await fetch('/api/import/pending-conflicts');
+    const data = await res.json();
+    const badge = document.getElementById('conflict-badge');
+    if (data.ok && data.count > 0) {
+      badge.textContent = data.count;
+      badge.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch (e) { console.error('Failed to update conflict badge:', e); }
+}
+
+async function loadPendingConflicts() {
+  try {
+    const res = await fetch('/api/import/pending-conflicts');
+    const data = await res.json();
+    const tbody = document.getElementById('conflict-pending-tbody');
+    tbody.innerHTML = '';
+    
+    if (data.ok && data.conflicts.length > 0) {
+      data.conflicts.forEach((c, idx) => {
+        const tr = document.createElement('tr');
+        
+        // Context model / chapter
+        const context = `<div style="font-size: 11px; color: var(--text-secondary);">
+          <strong>型號:</strong> ${esc(c.product || '—')}<br/>
+          <strong>章節:</strong> ${esc(c.chapter || '—')}
+        </div>`;
+        
+        // Highlight diff in DB vs Import
+        const dbDiff = diffString(c.import_val, c.db_val);
+        const importDiff = diffString(c.db_val, c.import_val);
+        
+        tr.innerHTML = `
+          <td>${idx + 1}</td>
+          <td>${context}</td>
+          <td style="font-size:13px; font-weight:500; text-align: left;">${esc(c.eng_text)}</td>
+          <td><span class="tag tag-blue">${esc(c.lang_code)}</span></td>
+          <td style="font-size: 12px; line-height: 1.5; text-align: left;">${dbDiff}</td>
+          <td style="font-size: 12px; line-height: 1.5; text-align: left;">${importDiff}</td>
+          <td>
+            <div style="display: flex; gap: 12px; justify-content: center; align-items: center;">
+              <label style="cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-muted);">
+                <input type="radio" name="res-${c.id}" value="PENDING" checked style="cursor: pointer;"/>
+                暫緩處理
+              </label>
+              <label style="cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 12px;">
+                <input type="radio" name="res-${c.id}" value="KEEP_DB" style="cursor: pointer;"/>
+                保留現有 (DB)
+              </label>
+              <label style="cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 12px;">
+                <input type="radio" name="res-${c.id}" value="KEEP_IMPORT" style="cursor: pointer;"/>
+                覆蓋匯入 (Import)
+              </label>
+            </div>
+          </td>
+        `;
+        // Store pending_id on the row object
+        tr.dataset.pendingId = c.id;
+        tbody.appendChild(tr);
+      });
+      filterPendingConflicts();
+    } else {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">🎉 尚無待處理的衝突項目</td></tr>';
+    }
+  } catch (e) {
+    showToast('❌ 載入衝突失敗: ' + e.message, 'error');
+  }
+}
+
+function setAllPendingDecisions(decision) {
+  const inputs = document.querySelectorAll('#conflict-pending-tbody input[type="radio"]');
+  inputs.forEach(input => {
+    if (input.value === decision) {
+      input.checked = true;
+    }
+  });
+}
+
+async function submitResolutions() {
+  const rows = document.querySelectorAll('#conflict-pending-tbody tr');
+  const resolutions = [];
+  
+  rows.forEach(tr => {
+    const pid = tr.dataset.pendingId;
+    if (!pid) return;
+    const checkedRadio = tr.querySelector(`input[name="res-${pid}"]:checked`);
+    if (checkedRadio && checkedRadio.value !== 'PENDING') {
+      resolutions.push({
+        pending_id: parseInt(pid),
+        decision: checkedRadio.value
+      });
+    }
+  });
+  
+  if (resolutions.length === 0) {
+    showToast('請先將至少一個項目的決策選為「保留現有」或「覆蓋匯入」', 'error');
+    return;
+  }
+  
+  showLoading('解決衝突並套用中...');
+  try {
+    const res = await fetch('/api/import/resolve-conflicts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resolutions })
+    });
+    const data = await res.json();
+    hideLoading();
+    if (data.ok) {
+      showToast(`已成功解決 ${data.resolved_count} 筆翻譯衝突！`);
+      loadPendingConflicts();
+      updateConflictBadge();
+      fetchAndRenderDB();
+      loadDBStats();
+    } else {
+      showToast('❌ ' + data.error, 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('❌ 提交決策失敗: ' + e.message, 'error');
+  }
+}
+
+function loadConflictLogLanguages() {
+  const sel = document.getElementById('conflict-log-lang');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">全部語言</option>';
+  LANG_CODES.forEach(code => {
+    const opt = document.createElement('option');
+    opt.value = code;
+    opt.textContent = `${code} ${LANG_NAMES[code] || ''}`;
+    sel.appendChild(opt);
+  });
+}
+
+async function searchConflictLogs() {
+  const qInput = document.getElementById('conflict-log-search');
+  const langSel = document.getElementById('conflict-log-lang');
+  if (!qInput || !langSel) return;
+  const q = qInput.value;
+  const lang = langSel.value;
+  
+  try {
+    const url = `/api/import/conflict-logs?q=${encodeURIComponent(q)}&lang=${lang}&page=${conflictLogPage}&per_page=15`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const tbody = document.getElementById('conflict-history-tbody');
+    tbody.innerHTML = '';
+    
+    if (data.ok && data.items.length > 0) {
+      data.items.forEach((log, idx) => {
+        const tr = document.createElement('tr');
+        
+        const decisionText = log.decision === 'KEEP_IMPORT' 
+          ? '<span class="tag tag-orange">覆蓋新版</span>' 
+          : '<span class="tag tag-blue">保留舊版</span>';
+          
+        const dbDiff = diffString(log.chosen_val, log.db_val);
+        const importDiff = diffString(log.chosen_val, log.import_val);
+        const chosenText = log.decision === 'KEEP_IMPORT' 
+          ? `<strong style="color:var(--success-text);">${esc(log.chosen_val)}</strong>`
+          : `<strong>${esc(log.chosen_val)}</strong>`;
+          
+        tr.innerHTML = `
+          <td>${(conflictLogPage - 1) * 15 + idx + 1}</td>
+          <td style="font-size:11px; white-space:nowrap;">${esc(log.resolved_at)}</td>
+          <td class="mono" style="font-size:11px;">${esc(log.batch_id)}</td>
+          <td style="font-size:13px; text-align: left;">${esc(log.eng_text)}</td>
+          <td><span class="tag tag-blue">${esc(log.lang_code)}</span></td>
+          <td style="font-size:12px; color:var(--text-secondary); text-align: left;">${dbDiff}</td>
+          <td style="font-size:12px; color:var(--text-secondary); text-align: left;">${importDiff}</td>
+          <td style="font-size:12px; text-align: left;">${chosenText}</td>
+          <td>${decisionText}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+      renderConflictLogPagination(data.total, data.page, data.per_page);
+    } else {
+      tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">無歷史解決紀錄</td></tr>';
+      document.getElementById('conflict-log-pagination').innerHTML = '';
+    }
+  } catch (e) {
+    showToast('❌ 載入歷史日誌失敗: ' + e.message, 'error');
+  }
+}
+
+function renderConflictLogPagination(total, page, perPage) {
+  const container = document.getElementById('conflict-log-pagination');
+  container.innerHTML = '';
+  const totalPages = Math.ceil(total / perPage);
+  if (totalPages <= 1) return;
+  
+  const addBtn = (label, targetPage, active=false, disabled=false) => {
+    const btn = document.createElement('button');
+    btn.className = `page-btn${active ? ' active' : ''}`;
+    btn.disabled = disabled;
+    btn.textContent = label;
+    btn.onclick = () => {
+      conflictLogPage = targetPage;
+      searchConflictLogs();
+    };
+    container.appendChild(btn);
+  };
+  
+  addBtn('◀', page - 1, false, page === 1);
+  for (let p = 1; p <= totalPages; p++) {
+    if (p === 1 || p === totalPages || (p >= page - 2 && p <= page + 2)) {
+      addBtn(p, p, p === page);
+    } else if (p === page - 3 || p === page + 3) {
+      const span = document.createElement('span');
+      span.className = 'page-info';
+      span.textContent = '...';
+      container.appendChild(span);
+    }
+  }
+  addBtn('▶', page + 1, false, page === totalPages);
+}
+
+function tokenize(str) {
+  // If CJK characters are present, split by character
+  if (/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f]/.test(str)) {
+    return str.split('');
+  }
+  // Otherwise, split by words and whitespaces
+  return str.split(/(\s+|\b)/).filter(Boolean);
+}
+
+function diffString(oldStr, newStr) {
+  if (!oldStr) return `<span class="diff-ins">${esc(newStr)}</span>`;
+  if (!newStr) return `<span class="diff-del">${esc(oldStr)}</span>`;
+  
+  let oldWords = tokenize(oldStr);
+  let newWords = tokenize(newStr);
+  
+  let dp = Array(oldWords.length + 1).fill(0).map(() => Array(newWords.length + 1).fill(0));
+  for (let i = 1; i <= oldWords.length; i++) {
+    for (let j = 1; j <= newWords.length; j++) {
+      if (oldWords[i-1] === newWords[j-1]) {
+        dp[i][j] = dp[i-1][j-1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i-1][j], dp[i][j-1]);
+      }
+    }
+  }
+  
+  let i = oldWords.length, j = newWords.length;
+  let diffs = [];
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldWords[i-1] === newWords[j-1]) {
+      diffs.push({ type: 'common', text: oldWords[i-1] });
+      i--; j--;
+    } else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) {
+      diffs.push({ type: 'ins', text: newWords[j-1] });
+      j--;
+    } else {
+      diffs.push({ type: 'del', text: oldWords[i-1] });
+      i--;
+    }
+  }
+  diffs.reverse();
+  
+  return diffs.map(d => {
+    if (d.type === 'ins') return `<span class="diff-ins">${esc(d.text)}</span>`;
+    if (d.type === 'del') return `<span class="diff-del">${esc(d.text)}</span>`;
+    return esc(d.text);
+  }).join('');
+}
+
+function filterPendingConflicts() {
+  const input = document.getElementById('conflict-pending-search');
+  if (!input) return;
+  const query = input.value.toLowerCase().trim();
+  const rows = document.querySelectorAll('#conflict-pending-tbody tr');
+  
+  rows.forEach(tr => {
+    if (tr.querySelector('.empty-cell')) return;
+    
+    const engText = tr.cells[2] ? tr.cells[2].textContent.toLowerCase() : '';
+    const dbVal = tr.cells[4] ? tr.cells[4].textContent.toLowerCase() : '';
+    const importVal = tr.cells[5] ? tr.cells[5].textContent.toLowerCase() : '';
+    
+    if (engText.includes(query) || dbVal.includes(query) || importVal.includes(query)) {
+      tr.style.display = '';
+    } else {
+      tr.style.display = 'none';
+    }
+  });
+}
+
+function clearPendingConflictSearch() {
+  const input = document.getElementById('conflict-pending-search');
+  if (input) {
+    input.value = '';
+    filterPendingConflicts();
+  }
 }
