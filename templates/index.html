@@ -542,7 +542,11 @@
 
     <!-- 上面：上傳面板 -->
     <div class="panel" style="margin-bottom: 20px;">
-      <div class="upload-zone" id="extract-upload-zone" style="height: 100px; padding: 15px;" onclick="document.getElementById('extract-file-input').click()">
+      <div class="upload-zone dropzone" id="extract-upload-zone" style="height: 100px; padding: 15px;" 
+           onclick="document.getElementById('extract-file-input').click()"
+           ondragover="event.preventDefault(); this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')"
+           ondrop="handleDrop(event, 'extract')">
         <span class="upload-icon" style="font-size: 24px; margin-bottom: 5px;">📤</span>
         <p class="upload-text" style="font-size: 14px;">點擊或拖曳上傳 <strong>PDF</strong> 說明書 或 <strong>PNG/JPG</strong> 圖片截圖</p>
         <p class="upload-sub" style="font-size: 11px;">支援本機 PDF 文字撈取與 macOS Vision 原生高精度 OCR</p>

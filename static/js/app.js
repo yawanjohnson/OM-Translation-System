@@ -165,6 +165,8 @@ function handleDrop(event, type) {
     uploadApplyIdmlFromFile(file);
   } else if (type === 'pm-reply') {
     uploadPMReplyFromFile(file);
+  } else if (type === 'extract') {
+    handleExtractUploadFromFile(file);
   }
 }
 
@@ -1606,9 +1608,13 @@ function grabTextToActiveInput(text) {
 }
 
 // Handle file upload
-async function handleExtractUpload(input) {
-  if (!input.files || !input.files[0]) return;
-  const file = input.files[0];
+function handleExtractUpload(input) {
+  if (input.files && input.files[0]) {
+    handleExtractUploadFromFile(input.files[0]);
+  }
+}
+
+async function handleExtractUploadFromFile(file) {
   const name = file.name.toLowerCase();
   
   const fd = new FormData();
