@@ -274,6 +274,10 @@ body {
 
 .dropzone.sm { padding: 20px 16px; }
 
+.dropzone * {
+  pointer-events: none;
+}
+
 .dz-icon { font-size: 32px; margin-bottom: 8px; }
 .dz-label { font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
 .dz-sub { font-size: 11px; color: var(--text-muted); margin-bottom: 12px; }
