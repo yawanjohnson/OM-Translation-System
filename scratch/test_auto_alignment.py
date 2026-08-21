@@ -225,6 +225,28 @@ def run_test():
     
     print("✅ Semantic Alignment Flow passed!")
     
+    # 4. Test Single Column Clearing
+    print("\nTesting Single Column Clearing:")
+    cleared_table = [{**r} for r in aligned_table] # Copy table
+    for r in cleared_table:
+        r['GER'] = ''
+    print(f"Cleared table (GER): {cleared_table}")
+    assert cleared_table[0]['ENG'] == "TIME: Set goals for Time."
+    assert cleared_table[0]['GER'] == ""
+    assert cleared_table[1]['ENG'] == "INCLINE: Adjust the treadmill incline."
+    assert cleared_table[1]['GER'] == ""
+    print("✅ Single Column Clearing passed!")
+    
+    # 5. Test Block Deletion and Alignment Update
+    print("\nTesting Block Deletion and Alignment Update:")
+    reduced_blocks = [b for i, b in enumerate(eng_blocks) if i != 2] # Delete Calories
+    reduced_table = align_blocks_to_table([], reduced_blocks, 'ENG')
+    print(f"Reduced table: {reduced_table}")
+    assert len(reduced_table) == 2
+    assert reduced_table[0]['ENG'] == "TIME: Set goals for Time."
+    assert reduced_table[1]['ENG'] == "INCLINE: Adjust the treadmill incline."
+    print("✅ Block Deletion and Alignment Update passed!")
+    
     print("\n🎉 ALL AUTOMATED ALIGNMENT TESTS PASSED SUCCESSFULLY! 🎉")
 
 if __name__ == '__main__':

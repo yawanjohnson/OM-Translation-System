@@ -1442,6 +1442,169 @@ function diffString(oldStr, newStr) {
   }).join('');
 }
 
+// Revert last merge action
+function undoExtractMerge() {
+  if (extractState.historyStack.length === 0) return;
+  
+  const prevState = extractState.historyStack.pop();
+  
+  // 1. Restore file state
+  if (prevState.fileId) {
+    const file = extractState.uploadedFiles[prevState.fileId];
+    if (file) {
+      if (prevState.pdfPages) file.pdfPages = prevState.pdfPages;
+      if (prevState.ocrBlocks) file.ocrBlocks = prevState.ocrBlocks;
+      
+      if (extractState.activeFileId === prevState.fileId) {
+        extractState.fileType = file.fileType;
+        extractState.pdfPages = file.pdfPages;
+        extractState.ocrBlocks = file.ocrBlocks;
+      }
+    }
+  }
+  
+  // 2. Restore table rows
+  if (prevState.tableRows) {
+    clearExtractEditor();
+    prevState.tableRows.forEach(row => {
+      addExtractRow(row);
+    });
+  }
+  
+  updateUndoButtonVisibility();
+  updateRepopulateButtonVisibility();
+  renderExtractPreview();
+  showToast('↩ 已復原上一步操作！', 'info');
+}
+
+// Save current state of both file preview blocks and table rows to history
+function saveExtractHistory() {
+  const fileId = extractState.activeFileId;
+  const file = extractState.uploadedFiles[fileId];
+  
+  if (extractState.historyStack.length >= 20) {
+    extractState.historyStack.shift();
+  }
+  
+  extractState.historyStack.push({
+    fileId: fileId,
+    pdfPages: file ? JSON.parse(JSON.stringify(file.pdfPages)) : null,
+    ocrBlocks: file ? JSON.parse(JSON.stringify(file.ocrBlocks)) : null,
+    tableRows: getExtractTableRowsData()
+  });
+  
+  updateUndoButtonVisibility();
+}
+
+// Update undo button display state
+function updateUndoButtonVisibility() {
+  const btn = document.getElementById('extract-undo-btn');
+  if (!btn) return;
+  
+  // Show undo button if there's any history entry
+  btn.style.display = extractState.historyStack.length > 0 ? 'inline-block' : 'none';
+}
+
+// Update repopulate button display state
+function updateRepopulateButtonVisibility() {
+  const btn = document.getElementById('extract-repopulate-btn');
+  if (!btn) return;
+  btn.style.display = extractState.activeFileId ? 'inline-block' : 'none';
+}
+
+// Clear all values of a single column/language dynamically
+function clearExtractColumn(code) {
+  if (!confirm(`⚠️ 確定要清空 ${LANG_NAMES[code] || code} (${code}) 欄位的所有內容嗎？\n此操作不會影響其他語言直欄。`)) {
+    return;
+  }
+  
+  saveExtractHistory();
+  
+  const rows = getExtractTableRowsData();
+  const lowerCode = code.toLowerCase();
+  
+  rows.forEach(row => {
+    row[code] = '';
+  });
+  
+  // Rebuild tbody
+  clearExtractEditor();
+  rows.forEach(row => {
+    addExtractRow(row);
+  });
+  
+  showToast(`🧹 已清空 ${code} 直欄的所有文字！`, 'info');
+}
+
+// Update the text of a preview card (from editable textarea)
+function updateExtractBlockText(index, newText) {
+  const fileId = extractState.activeFileId;
+  const file = extractState.uploadedFiles[fileId];
+  if (!file) return;
+  
+  if (file.fileType === 'pdf') {
+    const pageData = file.pdfPages[extractState.currentPage - 1];
+    if (pageData && pageData.paragraphs[index] !== undefined) {
+      pageData.paragraphs[index] = newText;
+      extractState.pdfPages = file.pdfPages;
+    }
+  } else if (file.fileType === 'image') {
+    if (file.ocrBlocks[index] !== undefined) {
+      file.ocrBlocks[index].text = newText;
+      extractState.ocrBlocks = file.ocrBlocks;
+    }
+  }
+  
+  // Real-time synchronization
+  alignExtractDataToTable();
+}
+
+// Delete a preview card (click on X button)
+function deleteExtractBlock(index) {
+  saveExtractHistory();
+  const fileId = extractState.activeFileId;
+  const file = extractState.uploadedFiles[fileId];
+  if (!file) return;
+  
+  if (file.fileType === 'pdf') {
+    const pageData = file.pdfPages[extractState.currentPage - 1];
+    if (pageData && pageData.paragraphs[index] !== undefined) {
+      pageData.paragraphs.splice(index, 1);
+      extractState.pdfPages = file.pdfPages;
+    }
+  } else if (file.fileType === 'image') {
+    if (file.ocrBlocks[index] !== undefined) {
+      file.ocrBlocks.splice(index, 1);
+      extractState.ocrBlocks = file.ocrBlocks;
+    }
+  }
+  
+  alignExtractDataToTable();
+  renderExtractPreview();
+  showToast('🗑️ 已刪除該提取段落！', 'info');
+}
+
+// User-facing Reset Table action with double-confirmation and auto-backup
+function userResetExtractTable() {
+  const rows = getExtractTableRowsData();
+  const hasData = rows.some(r => Object.values(r).some(v => v));
+  
+  if (hasData) {
+    if (!confirm("⚠️ 確定要重置並清空對照表嗎？\n這將會清除您目前編輯的所有多國語言對照資料！")) {
+      return;
+    }
+    // Save backup to history stack so they can undo!
+    saveExtractHistory();
+  }
+  
+  clearExtractEditor();
+  // Add 3 blank rows by default
+  for (let i = 0; i < 3; i++) {
+    addExtractRow();
+  }
+  showToast("💡 表格已重置。如果不小心按錯，可以點選左上角 [復原] 還原！", "info");
+}
+
 function filterPendingConflicts() {
   const input = document.getElementById('conflict-pending-search');
   if (!input) return;
@@ -1595,59 +1758,6 @@ function deleteExtractFile(event, fileId) {
   }
 }
 
-// Save current blocks/pages state of the active file to history stack (for Undo/Revert)
-function saveExtractHistory() {
-  const fileId = extractState.activeFileId;
-  const file = extractState.uploadedFiles[fileId];
-  if (!file) return;
-  
-  if (extractState.historyStack.length >= 15) {
-    extractState.historyStack.shift();
-  }
-  
-  extractState.historyStack.push({
-    fileId: fileId,
-    pdfPages: JSON.parse(JSON.stringify(file.pdfPages)),
-    ocrBlocks: JSON.parse(JSON.stringify(file.ocrBlocks))
-  });
-  
-  updateUndoButtonVisibility();
-}
-
-// Revert last merge action
-function undoExtractMerge() {
-  if (extractState.historyStack.length === 0) return;
-  
-  const prevState = extractState.historyStack.pop();
-  const file = extractState.uploadedFiles[prevState.fileId];
-  if (file) {
-    file.pdfPages = prevState.pdfPages;
-    file.ocrBlocks = prevState.ocrBlocks;
-    
-    // If the reverted file is currently active, sync it back to global state properties
-    if (extractState.activeFileId === prevState.fileId) {
-      extractState.fileType = file.fileType;
-      extractState.pdfPages = file.pdfPages;
-      extractState.ocrBlocks = file.ocrBlocks;
-    }
-  }
-  
-  updateUndoButtonVisibility();
-  alignExtractDataToTable();
-  renderExtractPreview();
-  showToast('↩ 已復原上一步合併段落操作！', 'info');
-}
-
-// Update undo button display state
-function updateUndoButtonVisibility() {
-  const btn = document.getElementById('extract-undo-btn');
-  if (!btn) return;
-  
-  // Only show undo button if there's any history entry belonging to the currently active file!
-  const hasHistoryForActiveFile = extractState.historyStack.some(h => h.fileId === extractState.activeFileId);
-  btn.style.display = hasHistoryForActiveFile ? 'inline-block' : 'none';
-}
-
 // Render dynamic checkboxes for translation columns
 function renderExtractLangCheckboxes() {
   const container = document.getElementById('extract-lang-checkboxes');
@@ -1677,8 +1787,8 @@ function updateExtractTableHeader() {
   if (!row) return;
   row.innerHTML = `
     <th style="width: 35px; text-align: center;"><input type="checkbox" id="extract-select-all" checked onchange="toggleSelectAllExtract(this)"/></th>
-    <th id="extract-header-eng">英文原文 (ENG)</th>
-    ${extractState.visibleLangs.map(code => `<th>${LANG_NAMES[code] || code} (${code})</th>`).join('')}
+    <th id="extract-header-eng">英文原文 (ENG) <span class="clear-col-btn" onclick="clearExtractColumn('ENG')" title="清空此欄">🧹</span></th>
+    ${extractState.visibleLangs.map(code => `<th>${LANG_NAMES[code] || code} (${code}) <span class="clear-col-btn" onclick="clearExtractColumn('${code}')" title="清空此欄">🧹</span></th>`).join('')}
     <th style="width: 50px; text-align: center; white-space: nowrap;">操作</th>
   `;
 }

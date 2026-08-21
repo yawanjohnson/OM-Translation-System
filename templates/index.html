@@ -587,6 +587,48 @@
       .gallery-pill-delete:hover {
         color: var(--error);
       }
+      .clear-col-btn {
+        margin-left: 6px;
+        cursor: pointer;
+        opacity: 0.6;
+        transition: opacity 0.15s, transform 0.15s;
+        font-size: 11px;
+        display: inline-block;
+      }
+      .clear-col-btn:hover {
+        opacity: 1;
+        transform: scale(1.2);
+        color: var(--error);
+      }
+      .pdf-para-textarea {
+        flex: 1;
+        background: transparent;
+        border: none;
+        color: var(--text-primary);
+        font-family: inherit;
+        font-size: 12px;
+        resize: none;
+        padding: 0;
+        margin: 0;
+        outline: none;
+        min-height: 20px;
+        line-height: 1.4;
+      }
+      .pdf-para-textarea:focus {
+        border-bottom: 1px dashed var(--accent);
+      }
+      .pdf-para-delete {
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        font-size: 11px;
+        padding: 2px 4px;
+        transition: color 0.15s;
+      }
+      .pdf-para-delete:hover {
+        color: var(--error);
+      }
     </style>
 
     <div class="tab-header">
@@ -616,7 +658,8 @@
         <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 15px;">
           <h3 id="extract-viewer-title">📄 檔案預覽 (未上傳)</h3>
           <div style="display: flex; align-items: center; gap: 10px;">
-            <button class="btn btn-ghost btn-sm" id="extract-undo-btn" onclick="undoExtractMerge()" style="display: none; padding: 2px 8px; color: var(--warning); border: 1px solid rgba(255, 165, 0, 0.3); border-radius: 4px; font-size: 11px;">↩ 復原合併 (Undo)</button>
+            <button class="btn btn-ghost btn-sm" id="extract-undo-btn" onclick="undoExtractMerge()" style="display: none; padding: 2px 8px; color: var(--warning); border: 1px solid rgba(255, 165, 0, 0.3); border-radius: 4px; font-size: 11px;">↩ 復原上一步 (Undo)</button>
+            <button class="btn btn-ghost btn-sm" id="extract-repopulate-btn" onclick="alignExtractDataToTable()" style="display: none; padding: 2px 8px; color: var(--accent); border: 1px solid rgba(0, 102, 255, 0.3); border-radius: 4px; font-size: 11px;">📥 重新填入表格 (Repopulate)</button>
             <div id="extract-page-controls" style="display: none; align-items: center; gap: 8px;">
               <button class="btn btn-ghost btn-sm" onclick="prevExtractPage()" style="padding: 2px 8px;">◀</button>
               <span id="extract-page-num" style="font-size: 13px; font-weight: bold;">第 1 頁 / 1 頁</span>
@@ -706,7 +749,7 @@
 
         <!-- 匯入操作列 -->
         <div style="display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--border); padding-top: 12px;">
-          <button class="btn btn-ghost" onclick="clearExtractEditor()" style="padding: 6px 12px;">重置表格</button>
+          <button class="btn btn-ghost" onclick="userResetExtractTable()" style="padding: 6px 12px;">重置表格</button>
           <button class="btn btn-primary" onclick="submitExtractToDB()" style="padding: 6px 16px;">驗證並匯入資料庫</button>
         </div>
       </div>
