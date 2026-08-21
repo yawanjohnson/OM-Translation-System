@@ -607,19 +607,34 @@
           </div>
         </div>
 
-        <div style="margin-bottom: 10px; font-size: 12px; color: var(--text-muted); line-height: 1.4; background: rgba(0,102,255,0.05); padding: 8px; border-radius: 4px; border-left: 3px solid var(--accent);">
-          💡 <strong>快速填入：</strong>選取下方表格的任一儲存格（藍色框線），再點選左側預覽區的「PDF段落」或「圖片標記框」，即可直接輸入該文字！
+        <!-- 自動填充與語系多選區 -->
+        <div style="margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px;">
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; font-size: 12px; font-weight: bold; color: var(--text-primary);">
+            <input type="checkbox" id="extract-auto-populate" checked />
+            <span>自動填入英文原文 (Auto-populate ENG)</span>
+          </label>
+          
+          <div style="border: 1px solid var(--border); border-radius: 4px; padding: 8px; background: rgba(255,255,255,0.02);">
+            <label class="form-label" style="font-size: 10px; margin-bottom: 6px; display: block; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">顯示對照語系直欄 (Toggle Translation Columns)</label>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px 12px; font-size: 11px;" id="extract-lang-checkboxes">
+              <!-- JS 動態生成語系核取方塊 -->
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 10px; font-size: 11px; color: var(--text-muted); line-height: 1.4; background: rgba(0,102,255,0.05); padding: 8px; border-radius: 4px; border-left: 3px solid var(--accent);">
+          💡 <strong>快速填入：</strong>選取下方表格的任一儲存格（藍色框線），再點選左側預覽區的「PDF段落」或「圖片標記框」，即可直接輸入該文字！若有滑鼠反白文字，優先抓取反白內容。
         </div>
 
         <!-- 編輯表格區 -->
-        <div class="table-wrap" style="flex: 1; overflow-y: auto; max-height: 280px; min-height: 200px; margin-bottom: 15px; border: 1px solid var(--border); border-radius: 4px;">
+        <div class="table-wrap" style="flex: 1; overflow-y: auto; max-height: 240px; min-height: 180px; margin-bottom: 15px; border: 1px solid var(--border); border-radius: 4px;">
           <table class="data-table" id="extract-editor-table">
             <thead>
-              <tr>
+              <tr id="extract-table-header-row">
                 <th style="width: 35px; text-align: center;"><input type="checkbox" id="extract-select-all" checked onchange="toggleSelectAllExtract(this)"/></th>
-                <th>英文原文 (ENG)</th>
-                <th>繁體中文 (CHT)</th>
-                <th style="width: 50px; text-align: center;">操作</th>
+                <th id="extract-header-eng">英文原文 (ENG)</th>
+                <!-- 動態語系表頭將插入於此 -->
+                <th style="width: 50px; text-align: center; white-space: nowrap;">操作</th>
               </tr>
             </thead>
             <tbody id="extract-editor-tbody">

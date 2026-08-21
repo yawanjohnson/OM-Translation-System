@@ -1481,11 +1481,17 @@ let extractState = {
   ocrBlocks: [],  // [ { text: "...", box: [x, y, w, h] }, ... ]
   currentPage: 1,
   activeInputId: null, // ID of currently focused text input in table (e.g. 'extract-row-0-eng')
-  rowCount: 0
+  rowCount: 0,
+  visibleLangs: ['CHT'] // Default only English + Chinese columns
 };
 
 // Initialize workspace when switching to tab
 function initExtractWorkspace() {
+  // Render checkboxes dynamically
+  renderExtractLangCheckboxes();
+  // Update Table headers dynamically
+  updateExtractTableHeader();
+
   if (extractState.rowCount === 0) {
     clearExtractEditor();
     // Add 3 blank rows by default
@@ -1497,6 +1503,92 @@ function initExtractWorkspace() {
   window.addEventListener('resize', resizeOcrOverlays);
 }
 
+// Render dynamic checkboxes for translation columns
+function renderExtractLangCheckboxes() {
+  const container = document.getElementById('extract-lang-checkboxes');
+  if (!container) return;
+  container.innerHTML = '';
+  LANG_CODES.forEach(code => {
+    if (code === 'ENG') return;
+    const label = document.createElement('label');
+    label.style.display = 'flex';
+    label.style.alignItems = 'center';
+    label.style.gap = '4px';
+    label.style.cursor = 'pointer';
+    label.style.userSelect = 'none';
+    
+    const isChecked = extractState.visibleLangs.includes(code);
+    label.innerHTML = `
+      <input type="checkbox" value="${code}" ${isChecked ? 'checked' : ''} onchange="handleExtractLangToggle(this)"/>
+      <span>${code}</span>
+    `;
+    container.appendChild(label);
+  });
+}
+
+// Update Table headers dynamically
+function updateExtractTableHeader() {
+  const row = document.getElementById('extract-table-header-row');
+  if (!row) return;
+  row.innerHTML = `
+    <th style="width: 35px; text-align: center;"><input type="checkbox" id="extract-select-all" checked onchange="toggleSelectAllExtract(this)"/></th>
+    <th id="extract-header-eng">英文原文 (ENG)</th>
+    ${extractState.visibleLangs.map(code => `<th>${LANG_NAMES[code] || code} (${code})</th>`).join('')}
+    <th style="width: 50px; text-align: center; white-space: nowrap;">操作</th>
+  `;
+}
+
+// Toggle translation languages and rebuild table dynamically
+function handleExtractLangToggle(checkbox) {
+  const code = checkbox.value;
+  if (checkbox.checked) {
+    if (!extractState.visibleLangs.includes(code)) {
+      extractState.visibleLangs.push(code);
+    }
+  } else {
+    extractState.visibleLangs = extractState.visibleLangs.filter(c => c !== code);
+  }
+  
+  // Save current data in rows before rebuilding
+  const currentRowsData = getExtractTableRowsData();
+  
+  updateExtractTableHeader();
+  
+  // Rebuild tbody
+  clearExtractEditor();
+  currentRowsData.forEach(row => {
+    addExtractRow(row);
+  });
+  
+  if (currentRowsData.length === 0) {
+    for (let i = 0; i < 3; i++) {
+      addExtractRow();
+    }
+  }
+}
+
+// Get all rows data dynamically
+function getExtractTableRowsData() {
+  const tbody = document.getElementById('extract-editor-tbody');
+  const trs = tbody.querySelectorAll('tr');
+  const list = [];
+  trs.forEach(tr => {
+    const rowData = {};
+    const engInput = tr.querySelector(`input[id$="-eng"]`);
+    if (engInput) {
+      rowData['ENG'] = engInput.value;
+    }
+    extractState.visibleLangs.forEach(code => {
+      const input = tr.querySelector(`input[id$="-${code.toLowerCase()}"]`);
+      if (input) {
+        rowData[code] = input.value;
+      }
+    });
+    list.push(rowData);
+  });
+  return list;
+}
+
 // Clear or Reset editor
 function clearExtractEditor() {
   document.getElementById('extract-editor-tbody').innerHTML = '';
@@ -1504,24 +1596,34 @@ function clearExtractEditor() {
   extractState.activeInputId = null;
 }
 
-// Add a blank row to the matching editor table
-function addExtractRow(eng = '', cht = '') {
+// Add a row to the matching editor table (langsData is {ENG: '...', CHT: '...', GER: '...'})
+function addExtractRow(langsData = {}) {
   const tbody = document.getElementById('extract-editor-tbody');
   const idx = extractState.rowCount;
   
   const tr = document.createElement('tr');
   tr.id = `extract-row-${idx}`;
   
+  let colsHtml = `
+    <td>
+      <input type="text" id="extract-row-${idx}-eng" class="form-input" value="${esc(langsData['ENG'] || '')}" onfocus="setActiveInput(this.id)" placeholder="點擊格或雙擊選取文字..."/>
+    </td>
+  `;
+  
+  extractState.visibleLangs.forEach(code => {
+    const lowerCode = code.toLowerCase();
+    colsHtml += `
+      <td>
+        <input type="text" id="extract-row-${idx}-${lowerCode}" class="form-input" value="${esc(langsData[code] || '')}" onfocus="setActiveInput(this.id)" placeholder="點擊格填入 ${code} 翻譯..."/>
+      </td>
+    `;
+  });
+  
   tr.innerHTML = `
     <td style="text-align: center; vertical-align: middle;">
       <input type="checkbox" class="extract-row-checkbox" checked />
     </td>
-    <td>
-      <input type="text" id="extract-row-${idx}-eng" class="form-input" value="${esc(eng)}" onfocus="setActiveInput(this.id)" placeholder="點擊此格以抓取原文..."/>
-    </td>
-    <td>
-      <input type="text" id="extract-row-${idx}-cht" class="form-input" value="${esc(cht)}" onfocus="setActiveInput(this.id)" placeholder="點擊此格以抓取譯文..."/>
-    </td>
+    ${colsHtml}
     <td style="text-align: center; vertical-align: middle;">
       <button class="btn btn-ghost btn-sm" onclick="removeExtractRowById('extract-row-${idx}')" style="color: var(--error); padding: 2px 6px;">✕</button>
     </td>
@@ -1530,8 +1632,10 @@ function addExtractRow(eng = '', cht = '') {
   tbody.appendChild(tr);
   extractState.rowCount++;
   
-  // Auto-focus the ENG field of the new row
-  setActiveInput(`extract-row-${idx}-eng`);
+  // Auto-focus the ENG field of the new row (only if we are not batch populating)
+  if (!langsData['ENG']) {
+    setActiveInput(`extract-row-${idx}-eng`);
+  }
 }
 
 function removeExtractRowById(rowId) {
@@ -1562,20 +1666,23 @@ function setActiveInput(inputId) {
   const curr = document.getElementById(inputId);
   if (curr) {
     curr.classList.add('editor-input-active');
-    curr.focus();
   }
 }
 
-// Populate the selected input field with clicked text snippet
+// Populate the selected input field with clicked text snippet (handles substring highlights)
 function grabTextToActiveInput(text) {
   if (!extractState.activeInputId) {
     showToast('💡 請先在右側對照編輯器中，點選一個輸入框儲存格！', 'info');
     return;
   }
   
+  // Selection Override (C scheme): Check if user highlighted a specific string
+  const selectedText = window.getSelection().toString().trim();
+  const textToUse = selectedText ? selectedText : text;
+  
   const activeInput = document.getElementById(extractState.activeInputId);
   if (activeInput) {
-    activeInput.value = text;
+    activeInput.value = textToUse;
     
     // Add a visual indicator (blink) that the value has been grabbed
     activeInput.style.transition = 'background-color 0.2s';
@@ -1584,31 +1691,46 @@ function grabTextToActiveInput(text) {
       activeInput.style.backgroundColor = '';
     }, 400);
     
-    // Auto-advance cursor to CHT if ENG was populated, or to next row's ENG if CHT was populated
+    // Clear selection range
+    window.getSelection().removeAllRanges();
+    
+    // Auto-advance cursor intelligently
     const idParts = extractState.activeInputId.split('-');
     const rowIdx = parseInt(idParts[2], 10);
     const colName = idParts[3];
     
     if (colName === 'eng') {
-      // Focus CHT of same row
-      const nextId = `extract-row-${rowIdx}-cht`;
-      if (document.getElementById(nextId)) {
-        setActiveInput(nextId);
+      if (extractState.visibleLangs.length > 0) {
+        const firstLang = extractState.visibleLangs[0].toLowerCase();
+        const nextId = `extract-row-${rowIdx}-${firstLang}`;
+        if (document.getElementById(nextId)) {
+          setActiveInput(nextId);
+        }
       }
-    } else if (colName === 'cht') {
-      // Focus ENG of next row (if exists, else create new row)
-      const nextId = `extract-row-${rowIdx + 1}-eng`;
-      if (document.getElementById(nextId)) {
-        setActiveInput(nextId);
+    } else {
+      const currLangIdx = extractState.visibleLangs.findIndex(l => l.toLowerCase() === colName);
+      if (currLangIdx !== -1 && currLangIdx < extractState.visibleLangs.length - 1) {
+        // Next translation column of the same row
+        const nextLang = extractState.visibleLangs[currLangIdx + 1].toLowerCase();
+        const nextId = `extract-row-${rowIdx}-${nextLang}`;
+        if (document.getElementById(nextId)) {
+          setActiveInput(nextId);
+        }
       } else {
-        addExtractRow();
+        // Next row ENG
+        const nextId = `extract-row-${rowIdx + 1}-eng`;
+        if (document.getElementById(nextId)) {
+          setActiveInput(nextId);
+        } else {
+          addExtractRow();
+        }
       }
     }
   }
 }
 
 // Handle file upload
-function handleExtractUpload(input) {
+async function handleExtractUpload(input) {
   if (input.files && input.files[0]) {
     handleExtractUploadFromFile(input.files[0]);
   }
@@ -1631,7 +1753,11 @@ async function handleExtractUploadFromFile(file) {
       
       extractState.pdfPages = data.pages;
       extractState.currentPage = 1;
-      showToast('✅ PDF 文字撈取成功！');
+      showToast('✅ PDF 文字撈取與智慧拼接成功！');
+      
+      // Auto-populate Page 1 ENG if toggle is checked
+      checkAndAutoPopulate();
+      
       renderExtractPreview();
       
     } else if (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg')) {
@@ -1653,7 +1779,11 @@ async function handleExtractUploadFromFile(file) {
       if (!data.ok) { showToast('❌ ' + data.error, 'error'); return; }
       
       extractState.ocrBlocks = data.blocks;
-      showToast('✅ 圖片 OCR 辨識成功！');
+      showToast('✅ 圖片 OCR 辨識與座標定位成功！');
+      
+      // Auto-populate image OCR blocks if checked
+      checkAndAutoPopulate();
+      
       renderExtractPreview();
       
     } else {
@@ -1663,6 +1793,31 @@ async function handleExtractUploadFromFile(file) {
   } catch (e) {
     hideLoading();
     showToast('❌ 文字提取失敗：' + e.message, 'error');
+  }
+}
+
+// Auto populate helper
+function checkAndAutoPopulate() {
+  const autoPop = document.getElementById('extract-auto-populate');
+  if (!autoPop || !autoPop.checked) return;
+  
+  clearExtractEditor();
+  
+  if (extractState.fileType === 'pdf') {
+    const pageData = extractState.pdfPages[extractState.currentPage - 1];
+    if (pageData && pageData.paragraphs.length > 0) {
+      pageData.paragraphs.forEach(para => {
+        addExtractRow({ 'ENG': para });
+      });
+      showToast(`💡 已自動填入第 ${extractState.currentPage} 頁的 ${pageData.paragraphs.length} 筆段落！`, 'info');
+    }
+  } else if (extractState.fileType === 'image') {
+    if (extractState.ocrBlocks.length > 0) {
+      extractState.ocrBlocks.forEach(block => {
+        addExtractRow({ 'ENG': block.text });
+      });
+      showToast(`💡 已自動填入圖片中 ${extractState.ocrBlocks.length} 筆 OCR 原文！`, 'info');
+    }
   }
 }
 
@@ -1751,6 +1906,7 @@ function resizeOcrOverlays() {
 function prevExtractPage() {
   if (extractState.currentPage > 1) {
     extractState.currentPage--;
+    checkAndAutoPopulate();
     renderExtractPreview();
   }
 }
@@ -1759,6 +1915,7 @@ function prevExtractPage() {
 function nextExtractPage() {
   if (extractState.currentPage < extractState.pdfPages.length) {
     extractState.currentPage++;
+    checkAndAutoPopulate();
     renderExtractPreview();
   }
 }
@@ -1780,17 +1937,22 @@ async function submitExtractToDB() {
   trs.forEach(tr => {
     const chk = tr.querySelector('.extract-row-checkbox');
     if (chk && chk.checked) {
-      const inputs = tr.querySelectorAll('input[type="text"]');
-      const eng = inputs[0] ? inputs[0].value.trim() : '';
-      const cht = inputs[1] ? inputs[1].value.trim() : '';
+      const engInput = tr.querySelector(`input[id$="-eng"]`);
+      const eng = engInput ? engInput.value.trim() : '';
       
       if (eng) {
-        rows.push({
+        const rowData = {
           product: product,
           chapter: chapter,
-          ENG: eng,
-          CHT: cht
+          ENG: eng
+        };
+        
+        extractState.visibleLangs.forEach(code => {
+          const input = tr.querySelector(`input[id$="-${code.toLowerCase()}"]`);
+          rowData[code] = input ? input.value.trim() : '';
         });
+        
+        rows.push(rowData);
       }
     }
   });

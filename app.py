@@ -905,11 +905,34 @@ def api_extract_pdf():
         pages_data = []
         for i, page in enumerate(reader.pages):
             text = page.extract_text() or ""
+            raw_lines = [line.strip() for line in text.split('\n') if line.strip()]
             paragraphs = []
-            for line in text.split('\n'):
-                line = line.strip()
-                if line:
-                    paragraphs.append(line)
+            current = ""
+            for line in raw_lines:
+                if not current:
+                    current = line
+                else:
+                    # 智慧拼接條件：若前行無標點句尾，且當前行首非大寫字首，則進行合併
+                    ends_with_punctuation = current[-1] in ('.', '?', '!', ':', ';')
+                    starts_with_capital = line[0].isupper() if line else False
+                    
+                    should_merge = not ends_with_punctuation
+                    if starts_with_capital:
+                        # 檢查是否為首字大寫的完整單字開頭 (例如: User)
+                        if len(line) > 1 and line[1].islower():
+                            should_merge = False
+                            
+                    if should_merge:
+                        if current.endswith('-'):
+                            current = current[:-1] + line
+                        else:
+                            current += " " + line
+                    else:
+                        paragraphs.append(current)
+                        current = line
+            if current:
+                paragraphs.append(current)
+                
             pages_data.append({
                 'page': i + 1,
                 'paragraphs': paragraphs
