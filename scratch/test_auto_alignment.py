@@ -104,13 +104,36 @@ def align_blocks_to_table(table_rows, new_blocks, lang_code):
         
         if len(aligned_rows) > 0:
             keywords = extract_keywords(text)
+            
+            # Find parenthesis keywords
+            block_parens = []
+            paren_matches = re.findall(r'\(([^)]+)\)', text)
+            for m in paren_matches:
+                word = m.strip().upper()
+                if len(word) >= 3:
+                    block_parens.append(word)
+            
+            best_score = 0
             for i, row in enumerate(aligned_rows):
-                eng_text = row.get('ENG', '').upper()
-                # Check if any keyword matches the English row
-                has_match = any(kw in eng_text for kw in keywords)
-                if has_match:
+                eng_text = row.get('ENG', '')
+                eng_upper = eng_text.upper()
+                eng_label = eng_text.split(':')[0].strip().upper()
+                
+                score = 0
+                
+                # 1. Parenthesis match (strong weight)
+                for bp in block_parens:
+                    if bp in eng_label:
+                        score += 100
+                
+                # 2. General keyword match (lower weight)
+                for kw in keywords:
+                    if kw in eng_upper:
+                        score += 10
+                        
+                if score > best_score:
+                    best_score = score
                     matched_idx = i
-                    break
                     
         if matched_idx != -1:
             aligned_rows[matched_idx][lang_code] = text
@@ -246,6 +269,28 @@ def run_test():
     assert reduced_table[0]['ENG'] == "TIME: Set goals for Time."
     assert reduced_table[1]['ENG'] == "INCLINE: Adjust the treadmill incline."
     print("✅ Block Deletion and Alignment Update passed!")
+    
+    # 6. Test Keyword Collision and Scoring Match
+    print("\nTesting Keyword Collision and Scoring Match (User's Scenario):")
+    collision_eng = [
+        {'ENG': "TIME: Set up your workout time. User could set up the speed."}, # Row 0 (contains TIME and word 'speed')
+        {'ENG': "SPEED: Set up treadmill speed."}                             # Row 1 (contains SPEED)
+    ]
+    collision_ger = [
+        {'text': "ZEIT (TIME): Stellen Sie Ihre Trainingszeit ein."},
+        {'text': "GESCHWINDIGKEIT (SPEED): Wird in KM/H angezeigt."}
+    ]
+    aligned_collision = align_blocks_to_table(collision_eng, collision_ger, 'GER')
+    print("Aligned collision table:")
+    for i, r in enumerate(aligned_collision):
+        print(f"  Row {i}: {r}")
+    
+    assert len(aligned_collision) == 2
+    # GER 'ZEIT (TIME)' must go to Row 0
+    assert aligned_collision[0]['GER'] == "ZEIT (TIME): Stellen Sie Ihre Trainingszeit ein."
+    # GER 'GESCHWINDIGKEIT (SPEED)' must go to Row 1 (exact parenthetical tag match has higher score than substring mention)
+    assert aligned_collision[1]['GER'] == "GESCHWINDIGKEIT (SPEED): Wird in KM/H angezeigt."
+    print("✅ Keyword Collision and Scoring Match passed!")
     
     print("\n🎉 ALL AUTOMATED ALIGNMENT TESTS PASSED SUCCESSFULLY! 🎉")
 

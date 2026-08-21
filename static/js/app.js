@@ -1827,7 +1827,6 @@ function highlightTableRow(idx, active) {
   if (row) {
     if (active) {
       row.classList.add('row-highlight');
-      row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } else {
       row.classList.remove('row-highlight');
     }
@@ -2440,12 +2439,40 @@ function populateExtractColumn(langCode) {
     // For non-ENG columns, we align using keyword matches against the ENG column
     if (langCode !== 'ENG' && alignedRows.length > 0) {
       const keywords = extractKeywords(text);
+      const blockParens = [];
+      const parenMatches = text.match(/\(([^)]+)\)/g);
+      if (parenMatches) {
+        parenMatches.forEach(m => {
+          const word = m.slice(1, -1).trim().toUpperCase();
+          if (word.length >= 3) blockParens.push(word);
+        });
+      }
+      
+      let bestScore = 0;
       for (let i = 0; i < alignedRows.length; i++) {
-        const engText = (alignedRows[i]['ENG'] || '').toUpperCase();
-        const hasMatch = keywords.some(kw => engText.includes(kw));
-        if (hasMatch) {
+        const engText = (alignedRows[i]['ENG'] || '');
+        const engUpper = engText.toUpperCase();
+        const engLabel = engText.split(':')[0].trim().toUpperCase();
+        
+        let score = 0;
+        
+        // 1. Parenthesis match (strong weight)
+        blockParens.forEach(bp => {
+          if (engLabel.includes(bp)) {
+            score += 100;
+          }
+        });
+        
+        // 2. General keyword match (lower weight)
+        keywords.forEach(kw => {
+          if (engUpper.includes(kw)) {
+            score += 10;
+          }
+        });
+        
+        if (score > bestScore) {
+          bestScore = score;
           matchedIdx = i;
-          break;
         }
       }
     }
