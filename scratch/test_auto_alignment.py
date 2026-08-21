@@ -10,7 +10,21 @@ def detect_language(text):
     STOP_WORDS = {
         'GER': {'der', 'die', 'das', 'und', 'ist', 'in', 'zu', 'den', 'dem', 'mit', 'von', 'für', 'anzeigefenster', 'steigung'},
         'ENG': {'the', 'and', 'is', 'in', 'to', 'of', 'for', 'on', 'with', 'at', 'incline', 'calories', 'speed', 'time', 'distance'},
+        'DUT': {'de', 'het', 'een', 'en', 'van', 'ik', 'te', 'dat', 'die', 'in', 'voor', 'met'},
+        'DAN': {'og', 'i', 'jeg', 'det', 'at', 'en', 'den', 'til', 'med', 'på'},
+        'FRE': {'le', 'la', 'les', 'et', 'un', 'une', 'en', 'que', 'est', 'dans', 'pour', 'avec'},
         'SPA': {'el', 'la', 'los', 'las', 'un', 'una', 'y', 'es', 'en', 'con', 'para', 'por'},
+        'ITA': {'il', 'la', 'i', 'gli', 'le', 'un', 'una', 'e', 'di', 'in', 'per', 'con'},
+        'POL': {'w', 'i', 'z', 'na', 'do', 'o', 'że', 'to', 'nie', 'się'},
+        'PRB': {'o', 'a', 'os', 'as', 'um', 'uma', 'e', 'em', 'com', 'para', 'por'},
+        'RUS': {'и', 'в', 'во', 'не', 'что', 'он', 'на', 'я', 'с', 'со'},
+        'TRK': {'bir', 've', 'bu', 'ne', 'da', 'de', 'için', 'ile', 'en', 'o'},
+        'GRK': {'και', 'το', 'του', 'τα', 'στην', 'στο', 'την', 'της', 'από', 'που'},
+        'VTM': {'và', 'là', 'trong', 'của', 'được', 'một', 'có', 'cho', 'với', 'người'},
+        'THI': {'และ', 'ใน', 'เป็น', 'ของ', 'ได้', 'มี', 'การ', 'ที่', 'ให้', 'กับ'},
+        'ARB': {'من', 'في', 'على', 'و', 'أن', 'إلى', 'هذا', 'هذه', 'مع', 'كل'},
+        'JPN': {'の', 'に', 'は', 'と', 'を', 'た', 'が', 'で', 'て', 'し'},
+        'KOR': {'이', '그', '저', '을', '를', '은', '는', '이', '가', '에'},
         'CHT': set("的是在有個這我我們你們他們與或及以於"),
         'CHS': set("的是在有个这我我们你们他们与或及以于")
     }
@@ -78,19 +92,23 @@ def run_test():
     print("\nTesting Language Detection:")
     eng_text = "TIME: Set goals for Time. User could set up the speed."
     ger_text = "ZEIT (TIME): Stellen Sie Ihre Trainingszeit und -geschwindigkeit ein."
-    spa_text = "TIEMPO (TIME): Establezca los objetivos para el tiempo."
+    spa_text = "TIEMPO (TIME): Establezca los objetivos para el tempo."
+    dut_text = "TIJD (TIME): Stel de doelen in voor de trainingstijd."
     
     lang_eng = detect_language(eng_text)
     lang_ger = detect_language(ger_text)
     lang_spa = detect_language(spa_text)
+    lang_dut = detect_language(dut_text)
     
     print(f"Detected '{eng_text[:15]}...' as: {lang_eng}")
     print(f"Detected '{ger_text[:15]}...' as: {lang_ger}")
     print(f"Detected '{spa_text[:15]}...' as: {lang_spa}")
+    print(f"Detected '{dut_text[:15]}...' as: {lang_dut}")
     
     assert lang_eng == 'ENG'
     assert lang_ger == 'GER'
     assert lang_spa == 'SPA'
+    assert lang_dut == 'DUT'
     print("✅ Language Detection passed!")
     
     # 2. Test Keyword Extraction

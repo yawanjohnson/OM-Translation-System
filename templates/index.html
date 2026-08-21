@@ -546,6 +546,43 @@
         background: rgba(0, 102, 255, 0.12) !important;
         box-shadow: 0 0 6px rgba(0, 102, 255, 0.2) !important;
       }
+      .gallery-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        font-size: 11px;
+        cursor: pointer;
+        transition: all 0.2s;
+        color: var(--text-secondary);
+        user-select: none;
+      }
+      .gallery-pill:hover {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: var(--text-secondary);
+      }
+      .gallery-pill.active {
+        background: rgba(0, 102, 255, 0.15);
+        border-color: var(--accent);
+        color: #fff;
+        font-weight: bold;
+      }
+      .gallery-pill-delete {
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: 0 2px;
+        font-size: 10px;
+        transition: color 0.15s;
+        line-height: 1;
+      }
+      .gallery-pill-delete:hover {
+        color: var(--error);
+      }
     </style>
 
     <div class="tab-header">
@@ -581,6 +618,11 @@
           </div>
         </div>
         
+        <!-- 已上傳檔案藝廊/清單 -->
+        <div id="extract-files-gallery" style="display: none; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: rgba(255,255,255,0.01);">
+          <!-- JS 動態生成檔案膠囊 (Badges) -->
+        </div>
+
         <!-- 內容容器 -->
         <div id="extract-viewer-body" style="flex: 1; overflow-y: auto; max-height: 480px; min-height: 400px; border: 1px dashed var(--border); border-radius: 6px; padding: 12px; background: rgba(0,0,0,0.15); position: relative; display: flex; flex-direction: column;">
           

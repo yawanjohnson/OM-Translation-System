@@ -900,7 +900,21 @@ def detect_language(text):
     STOP_WORDS = {
         'GER': {'der', 'die', 'das', 'und', 'ist', 'in', 'zu', 'den', 'dem', 'mit', 'von', 'für', 'anzeigefenster', 'steigung'},
         'ENG': {'the', 'and', 'is', 'in', 'to', 'of', 'for', 'on', 'with', 'at', 'incline', 'calories', 'speed', 'time', 'distance'},
+        'DUT': {'de', 'het', 'een', 'en', 'van', 'ik', 'te', 'dat', 'die', 'in', 'voor', 'met'},
+        'DAN': {'og', 'i', 'jeg', 'det', 'at', 'en', 'den', 'til', 'med', 'på'},
+        'FRE': {'le', 'la', 'les', 'et', 'un', 'une', 'en', 'que', 'est', 'dans', 'pour', 'avec'},
         'SPA': {'el', 'la', 'los', 'las', 'un', 'una', 'y', 'es', 'en', 'con', 'para', 'por'},
+        'ITA': {'il', 'la', 'i', 'gli', 'le', 'un', 'una', 'e', 'di', 'in', 'per', 'con'},
+        'POL': {'w', 'i', 'z', 'na', 'do', 'o', 'że', 'to', 'nie', 'się'},
+        'PRB': {'o', 'a', 'os', 'as', 'um', 'uma', 'e', 'em', 'com', 'para', 'por'},
+        'RUS': {'и', 'в', 'во', 'не', 'что', 'он', 'на', 'я', 'с', 'со'},
+        'TRK': {'bir', 've', 'bu', 'ne', 'da', 'de', 'için', 'ile', 'en', 'o'},
+        'GRK': {'και', 'το', 'του', 'τα', 'στην', 'στο', 'την', 'της', 'από', 'που'},
+        'VTM': {'và', 'là', 'trong', 'của', 'được', 'một', 'có', 'cho', 'với', 'người'},
+        'THI': {'และ', 'ใน', 'เป็น', 'ของ', 'ได้', 'มี', 'การ', 'ที่', 'ให้', 'กับ'},
+        'ARB': {'من', 'في', 'على', 'و', 'أن', 'إلى', 'هذا', 'هذه', 'مع', 'كل'},
+        'JPN': {'の', 'に', 'は', 'と', 'を', 'た', 'が', 'で', 'て', 'し'},
+        'KOR': {'이', '그', '저', '을', '를', '은', '는', '이', '가', '에'},
         'CHT': set("的是在有個這我我們你們他們與或及以於"),
         'CHS': set("的是在有个这我我们你们他们与或及以于")
     }

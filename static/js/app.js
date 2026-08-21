@@ -1476,13 +1476,15 @@ function clearPendingConflictSearch() {
 // ──────────────────────────────────────────────────────
 
 let extractState = {
+  uploadedFiles: {}, // { fileId: { name, fileType, pdfPages, ocrBlocks, ocrDetectedLang, imageSrc } }
+  activeFileId: null,
   fileType: null, // 'pdf' or 'image'
   pdfPages: [],   // [ { page: 1, paragraphs: [...] }, ... ]
   ocrBlocks: [],  // [ { text: "...", box: [x, y, w, h] }, ... ]
   currentPage: 1,
   activeInputId: null, // ID of currently focused text input in table (e.g. 'extract-row-0-eng')
   rowCount: 0,
-  visibleLangs: ['CHT'] // Default only English + Chinese columns
+  visibleLangs: [] // Default: empty array (NO CHT checked by default!)
 };
 
 // Initialize workspace when switching to tab
@@ -1493,6 +1495,8 @@ function initExtractWorkspace() {
   updateExtractTableHeader();
   // Update dropdown options
   updateAutoPopulateLangOptions();
+  // Render file gallery
+  renderExtractFilesGallery();
 
   if (extractState.rowCount === 0) {
     clearExtractEditor();
@@ -1503,6 +1507,86 @@ function initExtractWorkspace() {
   }
   // Setup overlay resizer on window resize
   window.addEventListener('resize', resizeOcrOverlays);
+}
+
+// Render horizontal capsule tabs of uploaded files
+function renderExtractFilesGallery() {
+  const container = document.getElementById('extract-files-gallery');
+  if (!container) return;
+  
+  const keys = Object.keys(extractState.uploadedFiles);
+  if (keys.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+  
+  container.style.display = 'flex';
+  container.innerHTML = '';
+  
+  keys.forEach(fileId => {
+    const file = extractState.uploadedFiles[fileId];
+    const pill = document.createElement('div');
+    pill.className = `gallery-pill ${fileId === extractState.activeFileId ? 'active' : ''}`;
+    pill.onclick = () => switchActiveExtractFile(fileId);
+    
+    pill.innerHTML = `
+      <span>${esc(file.name)}</span>
+      <button class="gallery-pill-delete" onclick="deleteExtractFile(event, '${fileId}')">✕</button>
+    `;
+    container.appendChild(pill);
+  });
+}
+
+// Switch current preview file
+function switchActiveExtractFile(fileId) {
+  extractState.activeFileId = fileId;
+  const file = extractState.uploadedFiles[fileId];
+  if (file) {
+    extractState.fileType = file.fileType;
+    extractState.pdfPages = file.pdfPages;
+    extractState.ocrBlocks = file.ocrBlocks;
+    extractState.currentPage = 1;
+    extractState.ocrDetectedLang = file.ocrDetectedLang;
+    
+    if (file.fileType === 'image' && file.imageSrc) {
+      const img = document.getElementById('extract-ocr-img');
+      img.src = file.imageSrc;
+      img.onload = () => {
+        resizeOcrOverlays();
+      };
+    }
+  }
+  renderExtractFilesGallery();
+  renderExtractPreview();
+}
+
+// Delete file from gallery
+function deleteExtractFile(event, fileId) {
+  event.stopPropagation();
+  delete extractState.uploadedFiles[fileId];
+  
+  if (extractState.activeFileId === fileId) {
+    const keys = Object.keys(extractState.uploadedFiles);
+    if (keys.length > 0) {
+      switchActiveExtractFile(keys[0]);
+    } else {
+      extractState.activeFileId = null;
+      extractState.fileType = null;
+      extractState.pdfPages = [];
+      extractState.ocrBlocks = [];
+      
+      // Reset preview
+      document.getElementById('extract-viewer-placeholder').style.display = 'block';
+      document.getElementById('extract-canvas-container').style.display = 'none';
+      document.getElementById('extract-pdf-list').style.display = 'none';
+      document.getElementById('extract-page-controls').style.display = 'none';
+      document.getElementById('extract-viewer-title').textContent = '📄 檔案預覽 (未上傳)';
+    }
+  }
+  renderExtractFilesGallery();
+  if (extractState.activeFileId) {
+    renderExtractPreview();
+  }
 }
 
 // Render dynamic checkboxes for translation columns
@@ -1815,43 +1899,51 @@ async function handleExtractUploadFromFiles(files) {
 }
 
 async function processSingleExtractFile(file) {
+  const fileId = 'file-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
   const name = file.name.toLowerCase();
   const fd = new FormData();
   fd.append('file', file);
   
   if (name.endsWith('.pdf')) {
-    extractState.fileType = 'pdf';
     const res = await fetch('/api/extract/pdf', { method: 'POST', body: fd });
     const data = await res.json();
     if (!data.ok) { throw new Error(data.error); }
     
-    extractState.pdfPages = data.pages;
-    extractState.currentPage = 1;
+    extractState.uploadedFiles[fileId] = {
+      id: fileId,
+      name: file.name,
+      fileType: 'pdf',
+      pdfPages: data.pages,
+      ocrBlocks: [],
+      ocrDetectedLang: 'ENG'
+    };
     
+    switchActiveExtractFile(fileId);
     alignExtractDataToTable();
-    renderExtractPreview();
     
   } else if (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg')) {
-    extractState.fileType = 'image';
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = document.getElementById('extract-ocr-img');
-      img.src = e.target.result;
-      img.onload = () => {
-        resizeOcrOverlays();
-      };
-    };
-    reader.readAsDataURL(file);
+    const imageSrc = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.readAsDataURL(file);
+    });
     
     const res = await fetch('/api/extract/ocr', { method: 'POST', body: fd });
     const data = await res.json();
     if (!data.ok) { throw new Error(data.error); }
     
-    extractState.ocrBlocks = data.blocks;
-    extractState.ocrDetectedLang = data.detected_lang;
+    extractState.uploadedFiles[fileId] = {
+      id: fileId,
+      name: file.name,
+      fileType: 'image',
+      pdfPages: [],
+      ocrBlocks: data.blocks,
+      ocrDetectedLang: data.detected_lang || 'ENG',
+      imageSrc: imageSrc
+    };
     
+    switchActiveExtractFile(fileId);
     alignExtractDataToTable();
-    renderExtractPreview();
   }
 }
 
