@@ -23,6 +23,13 @@ data/*.db
 # Excel files in root (optional, uncomment if you want to ignore all Excel files)
 # *.xlsx
 
+# Root-level database files (local dev only)
+/*.db
+
+# Test / scratch files
+test_*.xlsx
+test_*.csv
+
 # Editor configurations
 .vscode/
 .idea/
