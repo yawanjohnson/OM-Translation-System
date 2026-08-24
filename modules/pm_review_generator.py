@@ -283,8 +283,6 @@ body {{
   background: #fff5f5;
   border: 1px solid #fecaca;
   color: #991b1b;
-  text-decoration: line-through;
-  text-decoration-thickness: 2px;
 }}
 .diff-text.after {{
   background: #f0fdf4;
