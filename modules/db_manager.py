@@ -537,3 +537,243 @@ class DBManager:
             'per_page': per_page,
             'items': [dict(r) for r in rows]
         }
+
+    # ------------------------------------------------------------------ #
+    # 重複項合併與整理
+    # ------------------------------------------------------------------ #
+
+    def find_duplicate_groups(self) -> dict:
+        """
+        掃描資料庫中所有的重複英文原文 (ENG)。
+        比對條件：去除空白與大小寫後 (LOWER(TRIM(ENG))) 相同的資料列。
+        回傳:
+        {
+            'auto_mergeable': [
+                {
+                    'eng': 'Speed (kph)',
+                    'rows': [row1, row2, ...],
+                    'merged_preview': {'GER': 'Geschwindigkeit (km/h)', 'DUT': 'Snelheid (kph)', ...}
+                },
+                ...
+            ],
+            'conflicting': [
+                {
+                    'eng': 'Speed (kph)',
+                    'rows': [row1, row2, ...],
+                    'conflicts': {
+                        'GER': ['Geschwindigkeit (km/h)', 'Geschwindigkeit']
+                    },
+                    'non_conflicting': {
+                        'DUT': 'Snelheid (kph)'
+                    }
+                },
+                ...
+            ]
+        }
+        """
+        with self._get_conn() as conn:
+            # 1. 找出有重複的 ENG 條目 (去除前後空白、轉小寫比對)
+            dup_query = """
+            SELECT LOWER(TRIM("ENG")) as eng_clean, COUNT(*) as cnt
+            FROM translations
+            WHERE "ENG" IS NOT NULL AND "ENG" != ""
+            GROUP BY eng_clean
+            HAVING cnt > 1
+            """
+            dup_entries = conn.execute(dup_query).fetchall()
+            
+            auto_mergeable = []
+            conflicting = []
+            
+            for entry in dup_entries:
+                eng_clean = entry['eng_clean']
+                # 撈出該組所有重複行
+                rows = conn.execute(
+                    'SELECT * FROM translations WHERE LOWER(TRIM("ENG")) = ? ORDER BY id ASC',
+                    (eng_clean,)
+                ).fetchall()
+                
+                rows_dict = [dict(r) for r in rows]
+                if not rows_dict:
+                    continue
+                
+                # 分析各語言翻譯值
+                lang_vals = {lang: set() for lang in LANG_CODES}
+                
+                # 用於記錄每筆 Row 填了哪些語言
+                for r in rows_dict:
+                    for lang in LANG_CODES:
+                        val = (r.get(lang) or '').strip()
+                        if val:
+                            lang_vals[lang].add(val)
+                
+                # 判斷有無衝突
+                has_conflict = False
+                conflicts_summary = {}
+                non_conflicting_summary = {}
+                merged_preview = {}
+                
+                # 英文不用算衝突，以第一個非空為準
+                merged_preview['ENG'] = rows_dict[0]['ENG']
+                
+                for lang in LANG_CODES:
+                    if lang == 'ENG':
+                        continue
+                    unique_vals = list(lang_vals[lang])
+                    if len(unique_vals) > 1:
+                        has_conflict = True
+                        conflicts_summary[lang] = unique_vals
+                    elif len(unique_vals) == 1:
+                        non_conflicting_summary[lang] = unique_vals[0]
+                        merged_preview[lang] = unique_vals[0]
+                    else:
+                        merged_preview[lang] = ""
+                
+                if has_conflict:
+                    conflicting.append({
+                        'eng': rows_dict[0]['ENG'],
+                        'rows': rows_dict,
+                        'conflicts': conflicts_summary,
+                        'non_conflicting': non_conflicting_summary
+                    })
+                else:
+                    auto_mergeable.append({
+                        'eng': rows_dict[0]['ENG'],
+                        'rows': rows_dict,
+                        'merged_preview': merged_preview
+                    })
+                    
+            return {
+                'auto_mergeable': auto_mergeable,
+                'conflicting': conflicting
+            }
+
+    def merge_duplicate_groups(self, resolutions=None) -> dict:
+        """
+        執行重複原文列的合併與清理。
+        resolutions: list of dicts, 對於衝突組的解決方案。
+          格式如: [
+            {
+               'eng': 'Speed (kph)', 
+               'selected_values': {'GER': 'Geschwindigkeit (km/h)'}
+            },
+            ...
+          ]
+        回傳:
+        {'ok': True, 'merged_auto_count': N, 'merged_conflict_count': M, 'deleted_rows_count': D}
+        """
+        if resolutions is None:
+            resolutions = []
+            
+        # 轉換 resolutions 為 map，以便查詢
+        res_map = {res['eng'].lower().strip(): res['selected_values'] for res in resolutions if 'eng' in res}
+        
+        # 1. 掃描目前的重複組
+        groups = self.find_duplicate_groups()
+        
+        merged_auto_count = 0
+        merged_conflict_count = 0
+        deleted_rows_count = 0
+        
+        with self._get_conn() as conn:
+            # A. 處理自動合併 (無衝突)
+            for group in groups['auto_mergeable']:
+                rows = group['rows']
+                preview = group['merged_preview']
+                
+                # 挑選主列 (ID 最小的)
+                master_row = rows[0]
+                master_id = master_row['id']
+                other_ids = [r['id'] for r in rows[1:]]
+                
+                # 彙整所有要寫入 master_row 的欄位
+                update_data = {}
+                # 補齊 product 和 chapter (如有)
+                for r in rows:
+                    if r.get('product') and not update_data.get('product'):
+                        update_data['product'] = r['product']
+                    if r.get('chapter') and not update_data.get('chapter'):
+                        update_data['chapter'] = r['chapter']
+                
+                # 寫入合併後的語系翻譯
+                for lang in LANG_CODES:
+                    if lang == 'ENG':
+                        continue
+                    val = preview.get(lang) or ""
+                    # 只有當 preview 有值且與 master_row 不同時才寫入
+                    if val and (master_row.get(lang) or "") != val:
+                        update_data[lang] = val
+                
+                # 更新 master_row
+                if update_data:
+                    sets = [f'"{k}" = ?' for k in update_data.keys()]
+                    vals = list(update_data.values()) + [master_id]
+                    conn.execute(f"UPDATE translations SET {', '.join(sets)} WHERE id = ?", vals)
+                
+                # 刪除其他重複行
+                if other_ids:
+                    placeholders = ', '.join('?' * len(other_ids))
+                    conn.execute(f"DELETE FROM translations WHERE id IN ({placeholders})", other_ids)
+                    deleted_rows_count += len(other_ids)
+                    
+                merged_auto_count += 1
+                
+            # B. 處理手動合併 (有衝突)
+            for group in groups['conflicting']:
+                eng_key = group['eng']
+                eng_key_norm = eng_key.lower().strip()
+                rows = group['rows']
+                
+                # 如果使用者提供了該衝突組的決策
+                if eng_key_norm in res_map:
+                    decision = res_map[eng_key_norm]
+                    
+                    master_row = rows[0]
+                    master_id = master_row['id']
+                    other_ids = [r['id'] for r in rows[1:]]
+                    
+                    update_data = {}
+                    
+                    # 補齊 product / chapter
+                    for r in rows:
+                        if r.get('product') and not update_data.get('product'):
+                            update_data['product'] = r['product']
+                        if r.get('chapter') and not update_data.get('chapter'):
+                            update_data['chapter'] = r['chapter']
+                            
+                    # 對於每個語系
+                    for lang in LANG_CODES:
+                        if lang == 'ENG':
+                            continue
+                        
+                        # 如果有衝突，使用使用者的決策
+                        if lang in group['conflicts']:
+                            val = decision.get(lang) or ""
+                        else:
+                            # 無衝突語系，直接取非空的值
+                            val = group['non_conflicting'].get(lang) or ""
+                            
+                        if val:
+                            update_data[lang] = val
+                            
+                    # 更新主列
+                    if update_data:
+                        sets = [f'"{k}" = ?' for k in update_data.keys()]
+                        vals = list(update_data.values()) + [master_id]
+                        conn.execute(f"UPDATE translations SET {', '.join(sets)} WHERE id = ?", vals)
+                        
+                    # 刪除其他列
+                    if other_ids:
+                        placeholders = ', '.join('?' * len(other_ids))
+                        conn.execute(f"DELETE FROM translations WHERE id IN ({placeholders})", other_ids)
+                        deleted_rows_count += len(other_ids)
+                        
+                    merged_conflict_count += 1
+                    
+        return {
+            'ok': True,
+            'merged_auto_count': merged_auto_count,
+            'merged_conflict_count': merged_conflict_count,
+            'deleted_rows_count': deleted_rows_count
+        }
+

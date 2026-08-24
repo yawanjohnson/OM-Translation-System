@@ -2748,3 +2748,209 @@ async function submitExtractToDB() {
     showToast('❌ 連線伺服器發生異常：' + e.message, 'error');
   }
 }
+
+// ──────────────────────────────────────────────────────
+// 重複項合併與整理
+// ──────────────────────────────────────────────────────
+let mergeState = {
+  auto_mergeable: [],
+  conflicting: []
+};
+
+async function openMergeDuplicatesModal() {
+  openModal('modal-merge-duplicates');
+  document.getElementById('merge-dup-loading').style.display = 'block';
+  document.getElementById('merge-dup-content').style.display = 'none';
+  document.getElementById('btn-execute-merge').disabled = true;
+
+  try {
+    const res = await fetch('/api/translations/duplicates');
+    const data = await res.json();
+    document.getElementById('merge-dup-loading').style.display = 'none';
+
+    if (data.ok) {
+      mergeState.auto_mergeable = data.auto_mergeable || [];
+      mergeState.conflicting = data.conflicting || [];
+      document.getElementById('merge-dup-content').style.display = 'block';
+      document.getElementById('btn-execute-merge').disabled = false;
+      renderMergeDuplicates();
+    } else {
+      closeModal('modal-merge-duplicates');
+      showToast('❌ 掃描重複項失敗: ' + data.error, 'error');
+    }
+  } catch (e) {
+    document.getElementById('merge-dup-loading').style.display = 'none';
+    closeModal('modal-merge-duplicates');
+    showToast('❌ 掃描重複項失敗: ' + e.message, 'error');
+  }
+}
+
+function renderMergeDuplicates() {
+  // 1. 渲染自動合併資訊
+  const autoCount = mergeState.auto_mergeable.length;
+  let autoRows = 0;
+  mergeState.auto_mergeable.forEach(g => {
+    autoRows += g.rows.length;
+  });
+
+  document.getElementById('merge-auto-count').textContent = autoCount;
+  document.getElementById('merge-auto-rows').textContent = autoRows;
+
+  const autoAlert = document.getElementById('merge-auto-alert');
+  if (autoCount > 0) {
+    autoAlert.style.display = 'block';
+    autoAlert.className = 'alert alert-success';
+    autoAlert.innerHTML = `<strong>💡 自動合併預計：</strong> 偵測到 <span style="font-weight:bold; color:#00c850; font-size:16px;">${autoCount}</span> 組重複英文條目（涉及 <span style="font-weight:bold;">${autoRows}</span> 行），且各語系均無翻譯衝突。系統將自動補齊並整合為單一條目。`;
+  } else {
+    autoAlert.style.display = 'block';
+    autoAlert.className = 'alert alert-info';
+    autoAlert.innerHTML = `<strong>ℹ️ 自動合併：</strong> 暫無無衝突的重複條目。`;
+  }
+
+  // 2. 渲染衝突手動處理區
+  const conflictCount = mergeState.conflicting.length;
+  document.getElementById('merge-conflict-count').textContent = conflictCount;
+
+  const conflictsSection = document.getElementById('merge-conflicts-section');
+  const conflictList = document.getElementById('merge-conflict-list');
+  conflictList.innerHTML = '';
+
+  if (conflictCount > 0) {
+    conflictsSection.style.display = 'block';
+    
+    mergeState.conflicting.forEach((group, groupIdx) => {
+      const card = document.createElement('div');
+      card.className = 'merge-conflict-card';
+
+      // 涉及的 IDs 與型號章節
+      const rowIds = group.rows.map(r => r.id).join(', ');
+      const product = group.rows.find(r => r.product)?.product || '—';
+      const chapter = group.rows.find(r => r.chapter)?.chapter || '—';
+
+      let conflictsHtml = '';
+      
+      // 針對每個衝突語言生成選項
+      Object.keys(group.conflicts).forEach(lang => {
+        const uniqueVals = group.conflicts[lang];
+        let optionsHtml = '';
+        
+        uniqueVals.forEach((val, valIdx) => {
+          const name = `conflict-${groupIdx}-${lang}`;
+          const id = `conflict-${groupIdx}-${lang}-${valIdx}`;
+          const checked = valIdx === 0 ? 'checked' : '';
+          const activeClass = valIdx === 0 ? 'selected' : '';
+
+          optionsHtml += `
+            <label class="merge-radio-option ${activeClass}" id="label-${id}">
+              <input type="radio" id="${id}" name="${name}" value="${esc(val)}" ${checked} onchange="updateMergeRadioStyles('${name}')" style="cursor: pointer;"/>
+              <span class="merge-radio-text">${esc(val)}</span>
+            </label>
+          `;
+        });
+
+        conflictsHtml += `
+          <div class="merge-lang-conflict-row">
+            <div class="merge-lang-title">
+              <span class="tag tag-orange">${lang}</span>
+              <span style="font-size:12px; color:var(--text-muted);">發現多個相異翻譯，請選擇保留版本：</span>
+            </div>
+            <div class="merge-radio-options">
+              ${optionsHtml}
+            </div>
+          </div>
+        `;
+      });
+
+      card.innerHTML = `
+        <div class="merge-conflict-eng">${esc(group.eng)}</div>
+        <div class="merge-conflict-rows-info">
+          <strong>型號:</strong> ${esc(product)} &nbsp;|&nbsp; <strong>章節:</strong> ${esc(chapter)} &nbsp;|&nbsp; <strong>涉及 ID 列表:</strong> <span class="mono">${rowIds}</span>
+        </div>
+        <div class="merge-conflict-body">
+          ${conflictsHtml}
+        </div>
+      `;
+
+      conflictList.appendChild(card);
+    });
+  } else {
+    conflictsSection.style.display = 'none';
+    const noConflictsMsg = document.createElement('div');
+    noConflictsMsg.style.textAlign = 'center';
+    noConflictsMsg.style.padding = '20px';
+    noConflictsMsg.style.color = 'var(--success-text)';
+    noConflictsMsg.innerHTML = '🎉 <strong>目前沒有任何具翻譯衝突的重複項目！</strong>';
+    conflictList.appendChild(noConflictsMsg);
+  }
+}
+
+// 點選 radio 時更新標籤外觀
+function updateMergeRadioStyles(name) {
+  const inputs = document.querySelectorAll(`input[name="${name}"]`);
+  inputs.forEach(input => {
+    const label = document.getElementById(`label-${input.id}`);
+    if (label) {
+      if (input.checked) {
+        label.classList.add('selected');
+      } else {
+        label.classList.remove('selected');
+      }
+    }
+  });
+}
+
+async function submitMergeDuplicates() {
+  const resolutions = [];
+
+  // 收集衝突解決結果
+  for (let groupIdx = 0; groupIdx < mergeState.conflicting.length; groupIdx++) {
+    const group = mergeState.conflicting[groupIdx];
+    const selectedValues = {};
+
+    for (const lang of Object.keys(group.conflicts)) {
+      const checkedInput = document.querySelector(`input[name="conflict-${groupIdx}-${lang}"]:checked`);
+      if (!checkedInput) {
+        showToast(`⚠️ 請先為重複原文 「${group.eng}」 的 ${lang} 語系點選欲保留的版本！`, 'warning');
+        return;
+      }
+      selectedValues[lang] = checkedInput.value;
+    }
+
+    resolutions.push({
+      eng: group.eng,
+      selected_values: selectedValues
+    });
+  }
+
+  const confirmMsg = `確定要執行合併嗎？\n此動作將進行資料庫清理，刪除所有重複行並整合成單一列。`;
+  if (!confirm(confirmMsg)) return;
+
+  showLoading('正在執行資料庫合併整理...');
+
+  try {
+    const res = await fetch('/api/translations/merge-duplicates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resolutions })
+    });
+    const data = await res.json();
+    hideLoading();
+
+    if (data.ok) {
+      closeModal('modal-merge-duplicates');
+      const msg = `✅ 合併完成！自動整理 ${data.merged_auto_count} 組，手動整理 ${data.merged_conflict_count} 組，共刪除了 ${data.deleted_rows_count} 行冗餘資料列！`;
+      showToast(msg);
+      
+      // 重新整理資料庫頁面
+      loadDBStats();
+      searchDB();
+      updateConflictBadge();
+    } else {
+      showToast('❌ 合併失敗: ' + data.error, 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('❌ 合併失敗: ' + e.message, 'error');
+  }
+}
+

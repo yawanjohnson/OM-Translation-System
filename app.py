@@ -116,9 +116,26 @@ def api_delete(tid):
     return jsonify({'ok': ok})
 
 
-@app.route('/api/translations/stats')
-def api_stats():
-    return jsonify(db.get_stats())
+@app.route('/api/translations/duplicates', methods=['GET'])
+def api_get_duplicates():
+    """掃描資料庫中的重複原文 (ENG) 條目。"""
+    try:
+        res = db.find_duplicate_groups()
+        return jsonify({'ok': True, **res})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/translations/merge-duplicates', methods=['POST'])
+def api_merge_duplicates():
+    """執行合併重複原文。"""
+    data = request.json or {}
+    resolutions = data.get('resolutions', [])
+    try:
+        res = db.merge_duplicate_groups(resolutions)
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 # ──────────────────────────────────────────

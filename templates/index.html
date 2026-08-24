@@ -262,6 +262,7 @@
       <div class="search-actions">
         <button class="btn btn-primary btn-sm" onclick="openAddModal()">＋ 新增</button>
         <button class="btn btn-ghost btn-sm" onclick="exportDB()">⬇ 匯出 Excel</button>
+        <button class="btn btn-outline btn-sm" onclick="openMergeDuplicatesModal()">✨ 整理重複項</button>
       </div>
     </div>
 
@@ -788,6 +789,48 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('modal-edit')">取消</button>
       <button class="btn btn-primary" onclick="saveEntry()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 整理與合併重複項 -->
+<div class="modal-overlay" id="modal-merge-duplicates" style="display:none">
+  <div class="modal modal-wide" style="max-width: 900px;">
+    <div class="modal-header">
+      <h3>✨ 整理與合併重複原文</h3>
+      <button class="modal-close" onclick="closeModal('modal-merge-duplicates')">✕</button>
+    </div>
+    <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+      <div id="merge-dup-loading" style="text-align: center; padding: 40px;">
+        <span class="spinner" style="display:inline-block; width:24px; height:24px; border:3px solid var(--accent); border-top-color:transparent; border-radius:50%; animation:spin 1s linear infinite; margin-right:10px; vertical-align:middle;"></span>
+        <span style="color:var(--text-muted); font-size:14px; vertical-align:middle;">正在掃描資料庫中的重複項目...</span>
+      </div>
+      <div id="merge-dup-content" style="display:none">
+        
+        <!-- 說明與自動合併預估 -->
+        <div class="alert alert-info" id="merge-auto-alert" style="margin-bottom: 20px; background: rgba(0, 200, 80, 0.1); border-left-color: #00c850;">
+          <strong>💡 自動合併預計：</strong> 
+          偵測到 <span id="merge-auto-count" style="font-weight:bold; color:#00c850; font-size:16px;">0</span> 組重複英文條目（涉及 <span id="merge-auto-rows" style="font-weight:bold;">0</span> 行），且各語系均無翻譯衝突。系統將自動補齊並整合為單一條目。
+        </div>
+
+        <!-- 有衝突待手動處理區 -->
+        <div id="merge-conflicts-section" style="margin-top: 25px;">
+          <h4 style="margin-bottom: 12px; color: var(--text-color); border-bottom: 1px solid var(--border); padding-bottom: 8px; font-size: 15px; font-weight: 600;">
+            ⚠️ 待手動解決的衝突條目 (<span id="merge-conflict-count">0</span> 組)
+          </h4>
+          <p class="modal-desc" style="margin-bottom: 16px; font-size:13px; color:var(--text-muted);">
+            以下英文條目在資料庫擁有多行，且某些語系中存在相異的翻譯。請為每個語系點選您要保留的版本：
+          </p>
+          <div id="merge-conflict-list" class="merge-conflict-list-container" style="display: flex; flex-direction: column; gap: 16px;">
+            <!-- 衝突卡片動態渲染 -->
+          </div>
+        </div>
+
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-merge-duplicates')">取消</button>
+      <button class="btn btn-primary" id="btn-execute-merge" onclick="submitMergeDuplicates()">確認執行合併</button>
     </div>
   </div>
 </div>

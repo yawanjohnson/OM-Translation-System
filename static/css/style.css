@@ -926,3 +926,103 @@ body {
 .mb16 {
   margin-bottom: 16px;
 }
+
+/* ═══════════════════════════════════════════════════════
+   DUPLICATES MERGER STYLES
+   ═══════════════════════════════════════════════════════ */
+.merge-conflict-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.merge-conflict-card:hover {
+  border-color: rgba(248, 81, 73, 0.4);
+}
+
+.merge-conflict-eng {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-1);
+  background: rgba(79, 142, 247, 0.08);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--accent-1);
+  word-break: break-all;
+}
+
+.merge-conflict-rows-info {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.merge-conflict-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.merge-lang-conflict-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 10px;
+  border-radius: 4px;
+  border: 1px dashed var(--border);
+}
+
+.merge-lang-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.merge-radio-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.merge-radio-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.15);
+  border: 1px solid transparent;
+  transition: all 0.15s;
+}
+
+.merge-radio-option:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.merge-radio-option.selected {
+  background: rgba(79, 142, 247, 0.08);
+  border-color: rgba(79, 142, 247, 0.4);
+}
+
+.merge-radio-option input[type="radio"] {
+  margin-top: 3px;
+  cursor: pointer;
+}
+
+.merge-radio-text {
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.4;
+  word-break: break-all;
+}
+
