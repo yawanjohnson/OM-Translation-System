@@ -401,6 +401,26 @@ def _combine_replace_suffix(replace: str, suffix: str) -> tuple[str, str]:
     return replace, suffix
 
 
+def _drop_english_bracket_suffix(suffix: str, lang_code: str) -> str:
+    """當目標語言不是英文時，若 suffix 是純英文多詞括號說明文字
+    （例如 '(displayed when contact is made with both pulse grips)'），
+    則自動清除，防止翻譯完成後英文括號殘留在譯文末尾。
+    
+    判斷邏輯：括號內容只含英文字母與空格（無數字/特殊碼）且超過 2 個單詞。
+    這樣可以保留零件編號括號（如 '(21R)', '(30)'）不被誤刪。
+    """
+    if not suffix or not lang_code or lang_code == 'ENG':
+        return suffix
+    # 匹配純 ASCII 字母/空格的括號（可能前後有空白或句點）
+    m = re.match(r'^(\s*\(([a-zA-Z][a-zA-Z\s]*)\)\s*[.\s]*)$', suffix)
+    if m:
+        bracket_content = m.group(2).strip()
+        # 超過 2 個單詞才視為說明文字，單字縮寫或代碼不清除
+        if len(bracket_content.split()) >= 3:
+            return ''
+    return suffix
+
+
 def _split_csr_by_br(psr):
     """將 ParagraphStyleRange 中的 CharacterStyleRange 依照 Br (軟換行) 拆分為多個獨立的 CharacterStyleRange。
     這可以完全解決當同一段落有多行文字且共享同一個 CSR 時，其中一行缺失翻譯（綠字）導致整段文字全部變綠色的問題。
@@ -535,6 +555,8 @@ def _replace_in_paragraph(
                     else:
                         actual_replace = _match_casing(core, replace)
                         actual_replace, new_suffix = _combine_replace_suffix(actual_replace, suffix)
+                        # Fix: 自動清除純英文多詞括號說明後綴，防止翻譯後英文括號殘留
+                        new_suffix = _drop_english_bracket_suffix(new_suffix, lang_code)
 
                     # 置換整行文字，清空 core 及原後綴，保留 prefix
                     content_chars = {}

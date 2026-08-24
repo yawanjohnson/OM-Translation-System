@@ -597,6 +597,49 @@ body {
 .lang-btn:hover { border-color: var(--accent-1); color: var(--accent-1); }
 .lang-btn.selected { background: rgba(79,142,247,0.15); border-color: var(--accent-1); color: var(--accent-1); }
 
+/* Apply — 進階設定折疊區 */
+.apply-advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: var(--font-main);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.apply-advanced-toggle:hover {
+  border-color: var(--accent-1);
+  color: var(--accent-1);
+}
+
+.apply-skip-textarea {
+  width: 100%;
+  min-height: 100px;
+  padding: 10px 12px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  line-height: 1.6;
+  resize: vertical;
+  transition: border-color 0.15s;
+}
+.apply-skip-textarea:focus {
+  outline: none;
+  border-color: var(--accent-1);
+  box-shadow: 0 0 0 2px rgba(79,142,247,0.15);
+}
+.apply-skip-textarea::placeholder {
+  color: var(--text-muted);
+}
+
 /* ═══════════════════════════════════════════════════════
    BUTTONS
    ═══════════════════════════════════════════════════════ */

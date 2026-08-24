@@ -728,6 +728,10 @@ def api_apply_run():
     tmp_id    = data.get('tmp_id', '')
     lang      = data.get('lang_code', '')
     orig_name = data.get('original_filename', 'document.idml')
+    # 不翻譯清單：該清單內的英文段落將保留英文原文，不套用任何翻譯也不標記顏色
+    raw_skip  = data.get('skip_texts', [])  # list of str
+    # 正規化：小寫 + strip，方便不區分大小寫比對
+    skip_set  = {s.strip().lower() for s in raw_skip if s and s.strip()}
 
     if not lang:
         return jsonify({'ok': False, 'error': '請選擇目標語言'}), 400
@@ -756,6 +760,9 @@ def api_apply_run():
     instructions = []
     has_any_translation = False
     for eng_text in eng_texts:
+        # 不翻譯清單：段落在清單內則直接跳過（不生成任何指令，保留英文原文不標色）
+        if skip_set and eng_text.lower() in skip_set:
+            continue
         row = db.lookup_eng(eng_text)
         if row and row.get(lang):
             has_any_translation = True

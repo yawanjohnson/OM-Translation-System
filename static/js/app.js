@@ -1043,6 +1043,13 @@ async function runApply() {
   if (!applyState.tmpId)       { showToast('請先上傳 IDML', 'error'); return; }
   if (!applyState.selectedLang){ showToast('請選擇目標語言', 'error'); return; }
 
+  // 解析不翻譯清單：以換行分割，複製空白行
+  const skipRaw = document.getElementById('apply-skip-texts').value || '';
+  const skipTexts = skipRaw
+    .split('\n')
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+
   showLoading(`套用 ${applyState.selectedLang} 翻譯中...`);
   try {
     const res = await fetch('/api/apply/run', {
@@ -1052,6 +1059,7 @@ async function runApply() {
         tmp_id:            applyState.tmpId,
         lang_code:         applyState.selectedLang,
         original_filename: applyState.originalFilename,
+        skip_texts:        skipTexts,
       }),
     });
     const data = await res.json();
@@ -1064,11 +1072,21 @@ async function runApply() {
     document.getElementById('apply-result').style.display = 'block';
     document.getElementById('apply-success-count').textContent = data.applied;
     document.getElementById('apply-notfound-count').textContent = data.not_found;
-    showToast(`✅ 套用完成！${data.applied} 段落已替換`);
+
+    const skipNote = skipTexts.length > 0 ? `（${skipTexts.length} 條不翻譯項已跳過）` : '';
+    showToast(`✅ 套用完成！${data.applied} 段落已替換${skipNote}`);
   } catch (e) {
     hideLoading();
     showToast('❌ ' + e.message, 'error');
   }
+}
+
+function toggleApplyAdvanced() {
+  const panel = document.getElementById('apply-advanced-panel');
+  const arrow = document.getElementById('apply-advanced-arrow');
+  const isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'block';
+  arrow.textContent = isOpen ? '▶' : '▼';
 }
 
 // ──────────────────────────────────────────────────────

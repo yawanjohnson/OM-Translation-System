@@ -379,6 +379,27 @@
           <div class="lang-selector" id="apply-lang-selector"></div>
         </div>
 
+        <!-- 進階設定：不翻譯清單 -->
+        <div class="form-group">
+          <button type="button" class="apply-advanced-toggle" id="apply-advanced-toggle" onclick="toggleApplyAdvanced()">
+            <span id="apply-advanced-arrow">▶</span> 進階設定
+          </button>
+          <div id="apply-advanced-panel" style="display:none; margin-top:10px;">
+            <label class="form-label" style="margin-bottom:6px;">
+              🚫 不翻譯清單 <span style="color:var(--text-secondary); font-size:11px; font-weight:400;">（每行一條英文，這些段落將保留英文原文不套用翻譯）</span>
+            </label>
+            <textarea
+              id="apply-skip-texts"
+              class="apply-skip-textarea"
+              placeholder="例如：&#10;displayed when contact is made with both pulse grips&#10;User sets starting speed levels.&#10;L1: 1.6 km, L2: 3.2 km, L3: 5km..."
+              rows="5"
+            ></textarea>
+            <div style="margin-top:6px; font-size:11px; color:var(--text-muted);">
+              ※ 比對為不區分大小寫的精確比對，一行一條，不需要加引號。
+            </div>
+          </div>
+        </div>
+
         <button class="btn btn-primary btn-lg" id="btn-apply-run" onclick="runApply()" disabled>
           🔁 套用語言到 IDML
         </button>
