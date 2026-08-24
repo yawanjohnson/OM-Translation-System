@@ -41,12 +41,12 @@ pip show flask > /dev/null 2>&1 || {
 
 echo ""
 echo "🚀 啟動伺服器..."
-echo "   請在瀏覽器開啟：http://127.0.0.1:5000"
+echo "   請在瀏覽器開啟：http://127.0.0.1:5001"
 echo "   關閉此視窗可停止伺服器"
 echo ""
 
 # 延遲 1.5 秒後開啟瀏覽器
-(sleep 1.5 && open "http://127.0.0.1:5000") &
+(sleep 1.5 && open "http://127.0.0.1:5001") &
 
 # 啟動 Flask
 python3 app.py
