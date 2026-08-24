@@ -1217,8 +1217,8 @@ async function loadPendingConflicts() {
         </div>`;
         
         // Highlight diff in DB vs Import
-        const dbDiff = diffString(c.import_val, c.db_val);
-        const importDiff = diffString(c.db_val, c.import_val);
+        const dbDiff = diffHighlight(c.db_val, c.import_val, 'diff-del');
+        const importDiff = diffHighlight(c.import_val, c.db_val, 'diff-ins');
         
         tr.innerHTML = `
           <td>${idx + 1}</td>
@@ -1345,8 +1345,8 @@ async function searchConflictLogs() {
           ? '<span class="tag tag-orange">覆蓋新版</span>' 
           : '<span class="tag tag-blue">保留舊版</span>';
           
-        const dbDiff = diffString(log.chosen_val, log.db_val);
-        const importDiff = diffString(log.chosen_val, log.import_val);
+        const dbDiff = diffHighlight(log.db_val, log.chosen_val, 'diff-del');
+        const importDiff = diffHighlight(log.import_val, log.chosen_val, 'diff-ins');
         const chosenText = log.decision === 'KEEP_IMPORT' 
           ? `<strong style="color:var(--success-text);">${esc(log.chosen_val)}</strong>`
           : `<strong>${esc(log.chosen_val)}</strong>`;
@@ -1413,6 +1413,72 @@ function tokenize(str) {
   }
   // Otherwise, split by words and whitespaces
   return str.split(/(\s+|\b)/).filter(Boolean);
+}
+
+function diffHighlight(targetStr, otherStr, highlightClass) {
+  if (!targetStr) return '';
+  if (!otherStr) return `<span class="${highlightClass}">${esc(targetStr)}</span>`;
+  
+  let targetWords = tokenize(targetStr);
+  let otherWords = tokenize(otherStr);
+  
+  let dp = Array(targetWords.length + 1).fill(0).map(() => Array(otherWords.length + 1).fill(0));
+  for (let i = 1; i <= targetWords.length; i++) {
+    for (let j = 1; j <= otherWords.length; j++) {
+      if (targetWords[i-1] === otherWords[j-1]) {
+        dp[i][j] = dp[i-1][j-1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i-1][j], dp[i][j-1]);
+      }
+    }
+  }
+  
+  let i = targetWords.length, j = otherWords.length;
+  let matches = Array(targetWords.length).fill(false);
+  while (i > 0 && j > 0) {
+    if (targetWords[i-1] === otherWords[j-1]) {
+      matches[i-1] = true;
+      i--; j--;
+    } else if (dp[i][j-1] >= dp[i-1][j]) {
+      j--;
+    } else {
+      i--;
+    }
+  }
+  
+  let result = [];
+  let currentGroup = [];
+  let currentIsMatch = null;
+  
+  for (let idx = 0; idx < targetWords.length; idx++) {
+    let isMatch = matches[idx];
+    if (currentIsMatch === null) {
+      currentIsMatch = isMatch;
+      currentGroup.push(targetWords[idx]);
+    } else if (currentIsMatch === isMatch) {
+      currentGroup.push(targetWords[idx]);
+    } else {
+      let text = currentGroup.join('');
+      if (currentIsMatch) {
+        result.push(esc(text));
+      } else {
+        result.push(`<span class="${highlightClass}">${esc(text)}</span>`);
+      }
+      currentGroup = [targetWords[idx]];
+      currentIsMatch = isMatch;
+    }
+  }
+  
+  if (currentGroup.length > 0) {
+    let text = currentGroup.join('');
+    if (currentIsMatch) {
+      result.push(esc(text));
+    } else {
+      result.push(`<span class="${highlightClass}">${esc(text)}</span>`);
+    }
+  }
+  
+  return result.join('');
 }
 
 function diffString(oldStr, newStr) {
