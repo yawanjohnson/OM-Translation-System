@@ -701,7 +701,7 @@ function renderDBTable(items) {
       <td>${esc(row.chapter || '')}</td>
       ${visibleLangs.map(c => `
         <td title="${esc(row[c] || '')}">
-          <span class="cell-truncate" style="max-width:200px">${esc(row[c] || '')}</span>
+          ${esc(row[c] || '')}
         </td>
       `).join('')}
       <td>
