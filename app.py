@@ -116,6 +116,11 @@ def api_delete(tid):
     return jsonify({'ok': ok})
 
 
+@app.route('/api/translations/stats')
+def api_stats():
+    return jsonify(db.get_stats())
+
+
 @app.route('/api/translations/duplicates', methods=['GET'])
 def api_get_duplicates():
     """掃描資料庫中的重複原文 (ENG) 條目。"""
