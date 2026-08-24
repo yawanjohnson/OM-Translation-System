@@ -1241,6 +1241,10 @@ async function loadPendingConflicts() {
                 <input type="radio" name="res-${c.id}" value="KEEP_IMPORT" style="cursor: pointer;"/>
                 覆蓋匯入 (Import)
               </label>
+              <label style="cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 12px;">
+                <input type="radio" name="res-${c.id}" value="ADD_NEW" style="cursor: pointer;"/>
+                新增
+              </label>
             </div>
           </td>
         `;
@@ -1283,7 +1287,7 @@ async function submitResolutions() {
   });
   
   if (resolutions.length === 0) {
-    showToast('請先將至少一個項目的決策選為「保留現有」或「覆蓋匯入」', 'error');
+    showToast('請先將至少一個項目的決策選為「保留現有」、「覆蓋匯入」或「新增」', 'error');
     return;
   }
   
@@ -1341,13 +1345,18 @@ async function searchConflictLogs() {
       data.items.forEach((log, idx) => {
         const tr = document.createElement('tr');
         
-        const decisionText = log.decision === 'KEEP_IMPORT' 
-          ? '<span class="tag tag-orange">覆蓋新版</span>' 
-          : '<span class="tag tag-blue">保留舊版</span>';
+        let decisionText = '';
+        if (log.decision === 'KEEP_IMPORT') {
+          decisionText = '<span class="tag tag-orange">覆蓋新版</span>';
+        } else if (log.decision === 'ADD_NEW') {
+          decisionText = '<span class="tag tag-green">新增翻譯</span>';
+        } else {
+          decisionText = '<span class="tag tag-blue">保留舊版</span>';
+        }
           
         const dbDiff = diffHighlight(log.db_val, log.chosen_val, 'diff-del');
         const importDiff = diffHighlight(log.import_val, log.chosen_val, 'diff-ins');
-        const chosenText = log.decision === 'KEEP_IMPORT' 
+        const chosenText = (log.decision === 'KEEP_IMPORT' || log.decision === 'ADD_NEW')
           ? `<strong style="color:var(--success-text);">${esc(log.chosen_val)}</strong>`
           : `<strong>${esc(log.chosen_val)}</strong>`;
           

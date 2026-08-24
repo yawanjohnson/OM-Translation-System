@@ -291,13 +291,22 @@ def api_resolve_conflicts():
             db_val = conflict['db_val']
             import_val = conflict['import_val']
             
-            chosen_val = import_val if decision == 'KEEP_IMPORT' else db_val
+            chosen_val = import_val if decision in ('KEEP_IMPORT', 'ADD_NEW') else db_val
             
             # 1. 如果選擇匯入新版，更新 translations 表中對應翻譯
             if decision == 'KEEP_IMPORT':
                 existing = db.lookup_eng(eng_text)
                 if existing:
                     db.update(existing['id'], {lang_code: chosen_val})
+            
+            # 1b. 如果選擇新增，則在 translations 表中新增一行
+            elif decision == 'ADD_NEW':
+                db.add({
+                    'product': conflict.get('product') or '',
+                    'chapter': conflict.get('chapter') or '',
+                    'ENG': eng_text,
+                    lang_code: import_val
+                })
                     
             # 2. 寫入衝突日誌表
             db.add_conflict_log(
