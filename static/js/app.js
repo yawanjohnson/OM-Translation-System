@@ -2797,14 +2797,20 @@ function renderMergeDuplicates() {
   document.getElementById('merge-auto-rows').textContent = autoRows;
 
   const autoAlert = document.getElementById('merge-auto-alert');
+  const autoListDiv = document.getElementById('merge-auto-list');
+
   if (autoCount > 0) {
     autoAlert.style.display = 'block';
     autoAlert.className = 'alert alert-success';
-    autoAlert.innerHTML = `<strong>💡 自動合併預計：</strong> 偵測到 <span style="font-weight:bold; color:#00c850; font-size:16px;">${autoCount}</span> 組重複英文條目（涉及 <span style="font-weight:bold;">${autoRows}</span> 行），且各語系均無翻譯衝突。系統將自動補齊並整合為單一條目。`;
+    
+    // 串接自動合併的原文清單，方便使用者預覽確認
+    const names = mergeState.auto_mergeable.map(g => `"${g.eng}"`).join(', ');
+    autoListDiv.textContent = '將自動被合併的英文原文項目：' + names;
+    autoListDiv.style.display = 'block';
   } else {
     autoAlert.style.display = 'block';
     autoAlert.className = 'alert alert-info';
-    autoAlert.innerHTML = `<strong>ℹ️ 自動合併：</strong> 暫無無衝突的重複條目。`;
+    autoListDiv.style.display = 'none';
   }
 
   // 2. 渲染衝突手動處理區

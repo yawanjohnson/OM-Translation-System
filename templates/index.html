@@ -809,8 +809,11 @@
         
         <!-- 說明與自動合併預估 -->
         <div class="alert alert-info" id="merge-auto-alert" style="margin-bottom: 20px; background: rgba(0, 200, 80, 0.1); border-left-color: #00c850;">
-          <strong>💡 自動合併預計：</strong> 
-          偵測到 <span id="merge-auto-count" style="font-weight:bold; color:#00c850; font-size:16px;">0</span> 組重複英文條目（涉及 <span id="merge-auto-rows" style="font-weight:bold;">0</span> 行），且各語系均無翻譯衝突。系統將自動補齊並整合為單一條目。
+          <div>
+            <strong>💡 自動合併預計：</strong> 
+            偵測到 <span id="merge-auto-count" style="font-weight:bold; color:#00c850; font-size:16px;">0</span> 組重複英文條目（涉及 <span id="merge-auto-rows" style="font-weight:bold;">0</span> 行），且各語系均無翻譯衝突。系統將自動補齊並整合為單一條目。
+          </div>
+          <div id="merge-auto-list" style="margin-top: 8px; font-size: 12px; color: var(--text-secondary); max-height: 80px; overflow-y: auto; display: none; line-height: 1.5; padding: 4px 8px; background: rgba(0,0,0,0.2); border-radius: 4px;"></div>
         </div>
 
         <!-- 有衝突待手動處理區 -->
