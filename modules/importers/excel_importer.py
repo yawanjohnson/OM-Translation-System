@@ -58,7 +58,38 @@ def import_excel(file_path: str) -> list[dict]:
 
 def _read_xlsx(path: str) -> list[dict]:
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    
+    # 預設使用 active sheet
     ws = wb.active
+    
+    def is_valid_sheet(sheet) -> bool:
+        # 讀取前幾行，判斷是否包含有效欄位表頭
+        try:
+            # 由於 read_only=True，讀取部分列
+            test_rows = []
+            for row in sheet.iter_rows(max_row=5, values_only=True):
+                test_rows.append(row)
+            if not test_rows or not any(test_rows[0]):
+                return False
+            
+            headers = [str(c).strip().lower() for c in test_rows[0] if c is not None]
+            valid_keys = {
+                'product', 'chapter', '語言代碼', '語言', '找到原文', '原文', 
+                '修改為', '修改後', 'eng', 'cht', 'chs', 'lang_code', 'find', 'replace'
+            }
+            # 只要有一個標頭符合有效關鍵字或語言代碼，就視為有效資料頁
+            return any(h in valid_keys or h.upper() in LANG_CODES for h in headers)
+        except Exception:
+            return False
+
+    # 如果 active sheet 不合法，掃描所有分頁，尋找第一個包含有效欄位的工作表
+    if not is_valid_sheet(ws):
+        for name in wb.sheetnames:
+            sheet = wb[name]
+            if is_valid_sheet(sheet):
+                ws = sheet
+                break
+
     rows = list(ws.iter_rows(values_only=True))
     wb.close()
     if not rows:
@@ -66,6 +97,7 @@ def _read_xlsx(path: str) -> list[dict]:
     header_row = [str(c).strip() if c is not None else '' for c in rows[0]]
     col_map = _build_col_map(header_row)
     return _parse_rows(rows[1:], col_map)
+
 
 
 def _read_csv(path: str) -> list[dict]:
