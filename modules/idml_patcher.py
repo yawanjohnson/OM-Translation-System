@@ -141,9 +141,12 @@ def patch_idml(
             page_id_to_num = {pg['id']: pg['page_num'] for pg in spread.get('pages', [])}
             for tf in spread.get('text_frames', []):
                 story_id = tf.get('story_id')
-                page_id = tf.get('page_id')
-                if story_id and page_id in page_id_to_num:
-                    story_to_page[story_id] = page_id_to_num[page_id]
+                if story_id:
+                    # 標準化 story_id (例如：將 Story_u393 或 u393 都標準化成 u393)
+                    story_id_norm = story_id.replace('Story_', '')
+                    page_id = tf.get('page_id')
+                    if page_id in page_id_to_num:
+                        story_to_page[story_id_norm] = page_id_to_num[page_id]
     except Exception:
         pass
 
@@ -930,7 +933,8 @@ def _write_excel_report(changes: list, not_found: list, output_path: str, story_
         # 取得備註與頁碼
         note_val = ch.get('note', '')
         story_id = ch.get('story','').replace('Stories/','').replace('.xml','')
-        page_num = story_to_page.get(story_id)
+        story_id_norm = story_id.replace('Story_', '')
+        page_num = story_to_page.get(story_id_norm)
         if page_num:
             note_val = f"Page {page_num}" + (f" ({note_val})" if note_val else "")
             
@@ -954,7 +958,8 @@ def _write_excel_report(changes: list, not_found: list, output_path: str, story_
         # 取得備註與頁碼
         note_val = ch.get('note', '')
         story_id = ch.get('story','').replace('Stories/','').replace('.xml','')
-        page_num = story_to_page.get(story_id)
+        story_id_norm = story_id.replace('Story_', '')
+        page_num = story_to_page.get(story_id_norm)
         if page_num:
             note_val = f"Page {page_num}" + (f" ({note_val})" if note_val else "")
             
@@ -993,7 +998,8 @@ def _write_excel_report(changes: list, not_found: list, output_path: str, story_
         # 取得備註與頁碼
         note_val = note_prefix
         story_id = ch.get('story','').replace('Stories/','').replace('.xml','')
-        page_num = story_to_page.get(story_id)
+        story_id_norm = story_id.replace('Story_', '')
+        page_num = story_to_page.get(story_id_norm)
         if page_num:
             note_val = f"Page {page_num} ({note_val})"
             
