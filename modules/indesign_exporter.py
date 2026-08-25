@@ -50,7 +50,7 @@ def export_pdf_via_indesign(idml_path: str, pdf_path: str, lang_code: str = "") 
                 repeat with aFont in myFonts
                     try
                         if status of aFont is not normal then
-                            replace font aFont with "{target_font}"
+                            replace font aFont using "{target_font}"
                         end if
                     end try
                 end repeat
