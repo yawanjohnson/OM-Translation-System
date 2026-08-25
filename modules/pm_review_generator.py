@@ -653,6 +653,9 @@ body {{
 <div class="header">
   <div class="header-left">
     <h1>📋 修改確認報告</h1>
+    <div style="font-size: 13px; color: rgba(255,255,255,0.85); margin-top: 6px; font-weight: 500;">
+      💡 如果您看到排版問題，請在網頁上留言。
+    </div>
     <div class="header-meta">
       <span class="meta-item">📁 {filename}</span>
       <span class="meta-item">🕐 {date_str}</span>
@@ -1226,6 +1229,7 @@ function finishReview() {{
       note:      ch.note      || '',
       confirmed: state[i].confirmed,
       comment:   state[i].comment,
+      page:      ch.page      || '',
     }})),
     not_found: NOT_FOUND,
   }};

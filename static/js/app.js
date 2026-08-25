@@ -577,15 +577,16 @@ function renderPMReplyResult(data) {
   if (data.needs_redo?.length) {
     html += `<div class="section-divider">🔄 以下條目 PM 尚未確認（需重改或確認）</div>
     <div class="table-wrap"><table class="data-table">
-      <thead><tr><th>#</th><th>語言</th><th>原文</th><th>修改為</th><th>備註</th></tr></thead>
+      <thead><tr><th>#</th><th>語言</th><th>頁碼</th><th>原文</th><th>修改為</th><th>PM 退回意見</th></tr></thead>
       <tbody>`;
     data.needs_redo.forEach((it, i) => {
       html += `<tr>
         <td>${it.index || i+1}</td>
         <td><span class="tag tag-orange">${esc(it.lang_code)}</span></td>
+        <td>${it.page ? `<span class="tag tag-blue">Page ${esc(it.page)}</span>` : '<span class="tag tag-muted">-</span>'}</td>
         <td class="mono">${esc(it.find)}</td>
         <td class="mono">${esc(it.replace)}</td>
-        <td>${esc(it.note)}</td>
+        <td style="color:var(--error-text); font-weight:600">${esc(it.comment) || '<span style="color:var(--text-muted);font-weight:normal">（未填寫意見）</span>'}</td>
       </tr>`;
     });
     html += `</tbody></table></div>`;
