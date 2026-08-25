@@ -8,13 +8,14 @@ import os
 import subprocess
 
 
-def export_pdf_via_indesign(idml_path: str, pdf_path: str) -> bool:
+def export_pdf_via_indesign(idml_path: str, pdf_path: str, lang_code: str = "") -> bool:
     """
     呼叫 Mac 本機安裝的 Adobe InDesign 開啟 IDML 並匯出為真實 PDF（100% 精確排版與字型）。
 
     Args:
         idml_path: 修改後的 IDML 絕對路徑
         pdf_path:  要產出的 PDF 絕對路徑
+        lang_code: 當前翻譯語言代碼或名稱，用於判斷中日韓字型替代
 
     Returns:
         bool: 是否成功
@@ -25,8 +26,14 @@ def export_pdf_via_indesign(idml_path: str, pdf_path: str) -> bool:
     # 確保輸出目錄存在
     os.makedirs(os.path.dirname(abs_pdf), exist_ok=True)
 
+    # 依語言決定替換的字型家族
+    target_font = "Arial"
+    if lang_code:
+        l_code = lang_code.lower()
+        if any(x in l_code for x in ['cht', 'chs', 'jpn', 'kor', 'zh', 'ja', 'ko', '繁', '簡', '中', '日', '韓', 'cjk']):
+            target_font = "Noto Sans CJK JP"
+
     # AppleScript 指令
-    # 這裡使用 general "Adobe InDesign" 名稱，macOS 會自動導向目前安裝的 InDesign 版本（如 InDesign 2024）
     applescript = f'''
     tell application id "com.adobe.InDesign"
         activate
@@ -36,6 +43,18 @@ def export_pdf_via_indesign(idml_path: str, pdf_path: str) -> bool:
         try
             -- 開啟 IDML 檔案
             set myDoc to open POSIX file "{abs_idml}"
+            
+            -- 自動字體替換（排除缺字型錯誤）
+            tell myDoc
+                set myFonts to every font
+                repeat with aFont in myFonts
+                    try
+                        if status of aFont is not normal then
+                            replace font aFont with "{target_font}"
+                        end if
+                    end try
+                end repeat
+            end tell
             
             -- 匯出為 PDF
             export myDoc to POSIX file "{abs_pdf}" format PDF type
@@ -51,6 +70,7 @@ def export_pdf_via_indesign(idml_path: str, pdf_path: str) -> bool:
         end try
     end tell
     '''
+
 
 
     try:

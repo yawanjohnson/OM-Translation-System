@@ -673,6 +673,8 @@ def api_patch_export_pdf():
     if not idml_filename:
         return jsonify({'ok': False, 'error': '未提供 IDML 檔案名稱'}), 400
 
+    lang_code = data.get('lang_code', '')
+
     idml_path = os.path.join(OUTPUT_DIR, idml_filename)
     if not os.path.exists(idml_path):
         return jsonify({'ok': False, 'error': '找不到修改後的 IDML 檔案'}), 400
@@ -682,7 +684,7 @@ def api_patch_export_pdf():
     pdf_path = os.path.join(OUTPUT_DIR, pdf_filename)
 
     # 執行轉存
-    success = export_pdf_via_indesign(idml_path, pdf_path)
+    success = export_pdf_via_indesign(idml_path, pdf_path, lang_code=lang_code)
     if success:
         return jsonify({'ok': True, 'pdf_file': pdf_filename})
     else:

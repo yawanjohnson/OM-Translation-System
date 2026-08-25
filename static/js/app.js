@@ -503,13 +503,16 @@ async function generatePMReview() {
 async function exportRealPDF() {
   if (!patchState.idmlFile) { showToast('請先執行修正', 'error'); return; }
   
+  const langCode = patchState.lastChanges?.[0]?.lang_code || '';
+  
   showLoading('正在呼叫本機 InDesign 轉存 PDF 中...\n這可能需要 10-20 秒，請勿關閉網頁。');
   try {
     const res = await fetch('/api/patch/export-pdf', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        idml_file: patchState.idmlFile
+        idml_file: patchState.idmlFile,
+        lang_code: langCode
       })
     });
     const data = await res.json();
