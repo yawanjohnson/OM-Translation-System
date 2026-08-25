@@ -159,14 +159,14 @@
           </div>
         </div>
         <div class="result-downloads">
+          <button class="btn btn-verify" id="btn-verify" onclick="runVerify()" style="display:none">
+            🔍 驗證置換正確性
+          </button>
           <button class="btn btn-success" id="dl-idml-btn" onclick="downloadResult('idml')">
             ⬇ 下載標記版 IDML
           </button>
           <button class="btn btn-warning" id="dl-excel-btn" onclick="downloadResult('excel')">
             ⬇ 下載 Excel 報告
-          </button>
-          <button class="btn btn-verify" id="btn-verify" onclick="runVerify()" style="display:none">
-            🔍 驗證置換正確性
           </button>
           <button class="btn btn-pm" id="dl-pm-html-btn" onclick="generatePMReview()" style="display:none">
             📋 產出 PM 確認頁
@@ -175,6 +175,7 @@
             🖨 產生實際 PDF (透過 InDesign)
           </button>
         </div>
+
       </div>
 
       <!-- 未找到清單 -->
