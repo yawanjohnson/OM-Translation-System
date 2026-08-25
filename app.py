@@ -1250,4 +1250,5 @@ if __name__ == '__main__':
     print('  OM 多語言管理系統 啟動中...')
     print('  請在瀏覽器開啟 http://127.0.0.1:5001')
     print('='*50 + '\n')
-    app.run(debug=False, port=5001, host='127.0.0.1')
+    app.run(debug=True, port=5001, host='127.0.0.1')
+
