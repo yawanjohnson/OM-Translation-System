@@ -658,7 +658,19 @@ def api_patch_verify():
             # 驗證：修改後的文字應在 IDML 中
             count = all_text.count(replace_text) if replace_text else 0
             # 同時驗證原文是否已被清除
-            orig_still_present = (find_text != replace_text) and (find_text in all_text)
+            orig_still_present = False
+            if find_text != replace_text:
+                if find_text in all_text:
+                    # 如果原文是新文字的一部分（子字串）
+                    if find_text in replace_text:
+                        find_count = all_text.count(find_text)
+                        # 如果原文出現次數大於新文字出現次數，說明有其他地方殘留了舊原文
+                        if find_count > count:
+                            orig_still_present = True
+                    else:
+                        # 原文不是新文字的一部分，但依然存在，說明殘留了
+                        orig_still_present = True
+
             passed = count > 0 and not orig_still_present
             if not passed:
                 all_pass = False
