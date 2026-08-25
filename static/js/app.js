@@ -359,10 +359,11 @@ function renderPatchResult(data) {
       <td><span class="tag tag-green">${esc(c.lang_code)}</span></td>
       <td><span class="mono text-del">${esc(c.find)}</span></td>
       <td><span class="mono text-green">${esc(c.replace)}</span></td>
-      <td>${esc(c.note)}</td>
+      <td>${c.page ? `Page ${c.page}` + (c.note ? ` (${esc(c.note)})` : '') : esc(c.note)}</td>
     `;
     tbody2.appendChild(tr);
   });
+
 
   // 清除舊驗證結果
   const verifySec = document.getElementById('verify-section');

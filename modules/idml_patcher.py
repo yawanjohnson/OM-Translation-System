@@ -187,6 +187,8 @@ def patch_idml(
             if story_changes:
                 file_map[sname] = new_xml
                 for sc in story_changes:
+                    story_id_norm = sname.replace('Stories/','').replace('Story_','').replace('.xml','')
+                    page_num = story_to_page.get(story_id_norm)
                     instr_changes.append({
                         'lang_code':  lang_code,
                         'story':      sname,
@@ -197,7 +199,9 @@ def patch_idml(
                         'mark_red':   mark_red,
                         'mark_green': mark_green,
                         'mark_orange': mark_orange,
+                        'page':       page_num,
                     })
+
 
         if instr_changes:
             all_changes.extend(instr_changes)
