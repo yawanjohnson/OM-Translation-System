@@ -59,14 +59,15 @@ def export_pdf_via_indesign(idml_path: str, pdf_path: str) -> bool:
             ['osascript', '-e', applescript],
             capture_output=True,
             text=True,
-            timeout=45  # InDesign 讀取和匯出可能需要一點時間，給予 45 秒超時
+            timeout=120  # InDesign 讀取和匯出可能需要較長時間，給予 120 秒超時
+
         )
         
         output = res.stdout.strip()
         if "SUCCESS" in output:
             return True
         else:
-            print("InDesign PDF 匯出失敗：", output)
+            print("InDesign PDF 匯出失敗。Stdout:", output, "Stderr:", res.stderr.strip())
             return False
     except subprocess.TimeoutExpired:
         print("InDesign PDF 匯出超時（45 秒）")
