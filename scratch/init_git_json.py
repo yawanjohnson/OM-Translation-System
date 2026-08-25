@@ -20,6 +20,9 @@ def main():
     print("Exporting current translations to translations_git.json...")
     db.export_to_git_json()
     
+    print("Exporting current conflict logs to conflict_logs_git.json...")
+    db.export_conflict_logs_to_git_json()
+    
     json_path = os.path.join(os.path.dirname(db_path), 'translations_git.json')
     if os.path.exists(json_path):
         size = os.path.getsize(json_path)

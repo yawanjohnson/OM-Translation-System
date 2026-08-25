@@ -372,12 +372,16 @@ def api_resolve_conflicts():
                 db_val=db_val,
                 import_val=import_val,
                 chosen_val=chosen_val,
-                decision=decision
+                decision=decision,
+                suppress_export=True
             )
             
             # 3. 自 pending_conflicts 刪除
             db.delete_pending_conflict(pid)
             resolved_count += 1
+            
+        if resolved_count > 0:
+            db.export_conflict_logs_to_git_json()
             
         return jsonify({'ok': True, 'resolved_count': resolved_count, 'batch_id': batch_id})
     except Exception as e:

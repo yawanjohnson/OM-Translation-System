@@ -233,6 +233,15 @@ class DBManager:
         with open(target_path, 'w', encoding='utf-8') as f:
             json.dump(data_list, f, ensure_ascii=False, indent=2, sort_keys=True)
 
+    def export_conflict_logs_to_git_json(self):
+        import json
+        with self._get_conn() as conn:
+            rows = conn.execute('SELECT * FROM conflict_logs ORDER BY id').fetchall()
+            data_list = [dict(r) for r in rows]
+        target_path = os.path.join(os.path.dirname(self.db_path), 'conflict_logs_git.json')
+        with open(target_path, 'w', encoding='utf-8') as f:
+            json.dump(data_list, f, ensure_ascii=False, indent=2, sort_keys=True)
+
     # ------------------------------------------------------------------ #
     # CRUD
     # ------------------------------------------------------------------ #
@@ -670,14 +679,17 @@ class DBManager:
             return cur.rowcount > 0
 
     def add_conflict_log(self, batch_id: str, eng_text: str, lang_code: str,
-                         db_val: str, import_val: str, chosen_val: str, decision: str) -> int:
+                         db_val: str, import_val: str, chosen_val: str, decision: str, suppress_export=False) -> int:
         sql = """
         INSERT INTO conflict_logs (batch_id, eng_text, lang_code, db_val, import_val, chosen_val, decision)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """
         with self._get_conn() as conn:
             cur = conn.execute(sql, (batch_id, eng_text, lang_code, db_val, import_val, chosen_val, decision))
-            return cur.lastrowid
+            tid = cur.lastrowid
+        if not suppress_export:
+            self.export_conflict_logs_to_git_json()
+        return tid
 
     def get_conflict_logs(self, query: str = '', lang_code: str = '', page: int = 1, per_page: int = 50) -> dict:
         where_clauses = []
