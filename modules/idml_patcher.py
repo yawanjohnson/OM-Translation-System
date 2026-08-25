@@ -138,7 +138,7 @@ def patch_idml(
     try:
         layout = extract_layout(idml_path)
         for spread in layout.get('spreads', []):
-            page_id_to_num = {pg['id']: pg['page_num'] for pg in spread.get('pages', [])}
+            page_id_to_num = {pg['id']: pg.get('page_name', str(pg['page_num'])) for pg in spread.get('pages', [])}
             for tf in spread.get('text_frames', []):
                 story_id = tf.get('story_id')
                 if story_id:

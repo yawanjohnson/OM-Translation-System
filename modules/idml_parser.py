@@ -220,8 +220,25 @@ def extract_layout(idml_path: str) -> dict:
                 except Exception:
                     pass
 
-            # 2. Spreads
-            spread_names = sorted([n for n in zf.namelist() if n.startswith('Spreads/')])
+            # 2. Spreads (以 designmap.xml 中的物理順序排列)
+            spread_names = []
+            if "designmap.xml" in zf.namelist():
+                try:
+                    design_raw = zf.read("designmap.xml")
+                    design_tree = etree.fromstring(design_raw)
+                    for el in design_tree.iter():
+                        local_name = el.tag.split("}")[-1] if "}" in el.tag else el.tag
+                        if local_name == "Spread":
+                            src = el.get("src")
+                            if src and src in zf.namelist():
+                                spread_names.append(src)
+                except Exception:
+                    pass
+            
+            # 安全降級備用
+            if not spread_names:
+                spread_names = sorted([n for n in zf.namelist() if n.startswith('Spreads/')])
+
             page_num_counter = 1
             for spname in spread_names:
                 raw = zf.read(spname)
@@ -250,6 +267,7 @@ def extract_layout(idml_path: str) -> dict:
                                 'width':     gb[3] - gb[1],
                                 'height':    gb[2] - gb[0],
                                 'page_num':  page_num_counter,
+                                'page_name': el.get('Name') or str(page_num_counter),
                                 'spread_ox': it[4],
                                 'spread_oy': it[5],
                             })
