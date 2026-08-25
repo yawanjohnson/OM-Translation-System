@@ -32,6 +32,8 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.cell.rich_text import CellRichText, TextBlock, InlineFont
 from modules.db_manager import split_prefix_suffix
+from modules.idml_parser import extract_layout
+
 
 # ------------------------------------------------------------------ #
 # 常數
@@ -131,7 +133,22 @@ def patch_idml(
         file_map = {name: zf.read(name) for name in zf.namelist()}
         zip_infos = zf.infolist()
 
+    # 提取頁面與 Story 的對照關係，供 Excel 報告備註標記頁碼使用
+    story_to_page = {}
+    try:
+        layout = extract_layout(idml_path)
+        for spread in layout.get('spreads', []):
+            page_id_to_num = {pg['id']: pg['page_num'] for pg in spread.get('pages', [])}
+            for tf in spread.get('text_frames', []):
+                story_id = tf.get('story_id')
+                page_id = tf.get('page_id')
+                if story_id and page_id in page_id_to_num:
+                    story_to_page[story_id] = page_id_to_num[page_id]
+    except Exception:
+        pass
+
     # 注入顏色樣式資源（紅色 + 綠色）
+
     file_map = _inject_color_styles(file_map)
 
     # 逐條執行修改指示
@@ -193,7 +210,7 @@ def patch_idml(
     _write_idml(file_map, zip_infos, output_idml_path)
 
     # 寫出 Excel 報告
-    _write_excel_report(all_changes, not_found, output_excel_path)
+    _write_excel_report(all_changes, not_found, output_excel_path, story_to_page)
 
     return {'changes': all_changes, 'not_found': not_found}
 
@@ -849,7 +866,7 @@ def get_database_rich_diff(str1: str, str2: str) -> CellRichText:
     return rt
 
 
-def _write_excel_report(changes: list, not_found: list, output_path: str):
+def _write_excel_report(changes: list, not_found: list, output_path: str, story_to_page: dict = None):
     """
     Excel report (4 sheets):
       Sheet 1: Translations applied
@@ -858,6 +875,9 @@ def _write_excel_report(changes: list, not_found: list, output_path: str):
       Sheet 4: Text not found in IDML at all
     All content cells use black font. Color is only on headers.
     """
+    if story_to_page is None:
+        story_to_page = {}
+
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     wb = openpyxl.Workbook()
 
@@ -906,8 +926,16 @@ def _write_excel_report(changes: list, not_found: list, output_path: str):
     for i, ch in enumerate(applied, 1):
         row_idx = i + 1
         ws1.row_dimensions[row_idx].height = 36
+        
+        # 取得備註與頁碼
+        note_val = ch.get('note', '')
+        story_id = ch.get('story','').replace('Stories/','').replace('.xml','')
+        page_num = story_to_page.get(story_id)
+        if page_num:
+            note_val = f"Page {page_num}" + (f" ({note_val})" if note_val else "")
+            
         ws1.append([i, ch.get('lang_code',''), ch.get('find',''), ch.get('replace',''),
-                    ch.get('note',''), ch.get('story','').replace('Stories/','')])
+                    note_val, ch.get('story','').replace('Stories/','')])
         _set_row(ws1, row_idx, 6, i % 2 == 0)
     ws1.append([])
     ws1.append(['', f'共 {len(applied)} 條翻譯已套用'])
@@ -922,8 +950,16 @@ def _write_excel_report(changes: list, not_found: list, output_path: str):
     for i, ch in enumerate(missing, 1):
         row_idx = i + 1
         ws2.row_dimensions[row_idx].height = 36
+        
+        # 取得備註與頁碼
+        note_val = ch.get('note', '')
+        story_id = ch.get('story','').replace('Stories/','').replace('.xml','')
+        page_num = story_to_page.get(story_id)
+        if page_num:
+            note_val = f"Page {page_num}" + (f" ({note_val})" if note_val else "")
+            
         ws2.append([i, ch.get('lang_code',''), ch.get('find',''), '資料庫無此翻譯',
-                    ch.get('note',''), ch.get('story','').replace('Stories/','')])
+                    note_val, ch.get('story','').replace('Stories/','')])
         _set_row(ws2, row_idx, 6, i % 2 == 0)
     ws2.append([])
     if missing:
@@ -932,7 +968,7 @@ def _write_excel_report(changes: list, not_found: list, output_path: str):
         ws2.append(['', '🎉 無翻譯缺失，所有文字均已套用！'])
     ws2.cell(ws2.max_row, 2).font = BOLD_FONT
 
-# Sheet 3 (疑似錯字與相似句型警告)
+    # Sheet 3 (疑似錯字與相似句型警告)
     ws_warn = wb.create_sheet('⚠️ 疑似錯字與相似句型')
     _make_header(ws_warn,
         ['#', '語言', '英文原文（疑似錯字）', '預計套用翻譯 / 備註', '資料庫最相似原文', 'Story 位置'],
@@ -954,8 +990,15 @@ def _write_excel_report(changes: list, not_found: list, output_path: str):
         rich_find = get_indesign_rich_diff(ch.get('find',''), db_text)
         rich_db = get_database_rich_diff(ch.get('find',''), db_text)
         
+        # 取得備註與頁碼
+        note_val = note_prefix
+        story_id = ch.get('story','').replace('Stories/','').replace('.xml','')
+        page_num = story_to_page.get(story_id)
+        if page_num:
+            note_val = f"Page {page_num} ({note_val})"
+            
         ws_warn.append([i, ch.get('lang_code',''), "",
-                    note_prefix, "", ch.get('story','').replace('Stories/','')])
+                    note_val, "", ch.get('story','').replace('Stories/','')])
         ws_warn.cell(row_idx, 3).value = rich_find
         ws_warn.cell(row_idx, 5).value = rich_db
         _set_row(ws_warn, row_idx, 6, i % 2 == 0)
@@ -967,60 +1010,7 @@ def _write_excel_report(changes: list, not_found: list, output_path: str):
     ws_warn.cell(ws_warn.max_row, 2).font = BOLD_FONT
 
     # Sheet 4
-    ws3 = wb.create_sheet('❌ IDML找不到')
-    _make_header(ws3,
-        ['#', '語言', '搜尋文字（IDML中無此段落）', '預計套用翻譯', '備註'],
-        [5, 8, 55, 48, 20],
-        '7B1A1A')
-    for i, nf in enumerate(not_found, 1):
-        row_idx = i + 1
-        ws3.row_dimensions[row_idx].height = 36
-        ws3.append([i, nf.get('lang_code',''), nf.get('find',''),
-                    nf.get('replace',''), nf.get('note','')])
-        _set_row(ws3, row_idx, 5, i % 2 == 0)
-    ws3.append([])
-    if not_found:
-        ws3.append(['', f'共 {len(not_found)} 條文字在 IDML 中找不到對應段落'])
-    else:
-        ws3.append(['', '🎉 IDML 中所有段落均已找到！'])
-    # Sheet 1
-    ws1 = wb.active
-    ws1.title = '✅ 翻譯已套用'
-    _make_header(ws1,
-        ['#', '語言', '英文原文', '套用後文字', '備註', 'Story 位置'],
-        [5, 8, 48, 48, 20, 35],
-        '1B6B3A')
-    for i, ch in enumerate(applied, 1):
-        row_idx = i + 1
-        ws1.row_dimensions[row_idx].height = 36
-        ws1.append([i, ch.get('lang_code',''), ch.get('find',''), ch.get('replace',''),
-                    ch.get('note',''), ch.get('story','').replace('Stories/','')])
-        _set_row(ws1, row_idx, 6, i % 2 == 0)
-    ws1.append([])
-    ws1.append(['', f'共 {len(applied)} 條翻譯已套用'])
-    ws1.cell(ws1.max_row, 2).font = BOLD_FONT
-
-    # Sheet 2
-    ws2 = wb.create_sheet('🟢 翻譯缺失')
-    _make_header(ws2,
-        ['#', '語言', '英文原文（保留）', '資料庫狀態', '備註', 'Story 位置'],
-        [5, 8, 55, 20, 20, 35],
-        '4A7A1A')
-    for i, ch in enumerate(missing, 1):
-        row_idx = i + 1
-        ws2.row_dimensions[row_idx].height = 36
-        ws2.append([i, ch.get('lang_code',''), ch.get('find',''), '資料庫無此翻譯',
-                    ch.get('note',''), ch.get('story','').replace('Stories/','')])
-        _set_row(ws2, row_idx, 6, i % 2 == 0)
-    ws2.append([])
-    if missing:
-        ws2.append(['', f'共 {len(missing)} 條翻譯缺失，IDML 中以綠色標記'])
-    else:
-        ws2.append(['', '🎉 無翻譯缺失，所有文字均已套用！'])
-    ws2.cell(ws2.max_row, 2).font = BOLD_FONT
-
-    # Sheet 3
-    ws3 = wb.create_sheet('❌ IDML找不到')
+    ws3 = wb.create_sheet('❌ 找不到內容')
     _make_header(ws3,
         ['#', '語言', '搜尋文字（IDML中無此段落）', '預計套用翻譯', '備註'],
         [5, 8, 55, 48, 20],
@@ -1039,6 +1029,7 @@ def _write_excel_report(changes: list, not_found: list, output_path: str):
     ws3.cell(ws3.max_row, 2).font = BOLD_FONT
 
     wb.save(output_path)
+
 
 
 
