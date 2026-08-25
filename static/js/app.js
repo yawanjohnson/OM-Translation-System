@@ -362,7 +362,8 @@ function renderPatchResult(data) {
       <td><span class="tag tag-green">${esc(c.lang_code)}</span></td>
       <td><span class="mono text-del">${esc(c.find)}</span></td>
       <td><span class="mono text-green">${esc(c.replace)}</span></td>
-      <td>${c.page ? `Page ${c.page}` + (c.note ? ` (${esc(c.note)})` : '') : esc(c.note)}</td>
+      <td>${c.page ? `<span class="tag tag-blue">Page ${esc(c.page)}</span>` : '<span class="tag tag-muted">-</span>'}</td>
+      <td>${esc(c.note || '')}</td>
     `;
     tbody2.appendChild(tr);
   });
@@ -462,6 +463,7 @@ function renderVerifyResult(data) {
       <td><span class="tag tag-blue">${esc(r.lang_code)}</span></td>
       <td><span class="mono text-del" style="font-size:12px">${esc(r.find)}</span></td>
       <td><span class="mono text-green" style="font-size:12px">${esc(r.replace)}</span></td>
+      <td>${r.page ? `<span class="tag tag-blue">Page ${esc(r.page)}</span>` : '<span class="tag tag-muted">-</span>'}</td>
       <td style="text-align:center;font-weight:700;color:${r.count > 0 ? 'var(--success-text)' : 'var(--error-text)'}">${r.count}</td>
       <td>${badge}</td>
       <td style="font-size:11px;color:var(--text-muted)">${esc(r.note)}${r.orig_still_present ? ' <em style="color:var(--warning-text)">• 原文仍存在</em>' : ''}</td>

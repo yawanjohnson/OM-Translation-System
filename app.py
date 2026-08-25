@@ -667,6 +667,7 @@ def api_patch_verify():
                 'find': find_text,
                 'replace': replace_text,
                 'note': ch.get('note', ''),
+                'page': ch.get('page', ''),
                 'found': count > 0,
                 'count': count,
                 'orig_still_present': orig_still_present,
