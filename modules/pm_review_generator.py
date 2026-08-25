@@ -305,6 +305,15 @@ body {{
   color: #4338ca;
   letter-spacing: 0.04em;
 }}
+.page-pill {{
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #dbeafe;
+  color: #1d4ed8;
+  letter-spacing: 0.04em;
+}}
 .note-text {{
   font-size: 12px;
   color: #6b7280;
@@ -855,6 +864,7 @@ function buildCards() {{
       <div class="card-header">
         <span class="card-num">#${{i+1}}</span>
         <span class="lang-pill">${{esc(ch.lang_code || '')}}</span>
+        ${{ch.page ? `<span class="page-pill">Page ${{esc(ch.page)}}</span>` : ''}}
         <span class="note-text">${{esc(ch.note || '')}}</span>
         <span class="status-badge" id="badge-${{i}}"></span>
       </div>
@@ -1177,6 +1187,7 @@ function renderModalContent(storyId, frameChanges) {{
       <div class="card-header" style="background:#f8fafc">
         <span class="card-num">#${{ch.originalIndex + 1}}</span>
         <span class="lang-pill">${{esc(ch.lang_code)}}</span>
+        ${{ch.page ? `<span class="page-pill">Page ${{esc(ch.page)}}</span>` : ''}}
         <span class="note-text">${{esc(ch.note || '')}}</span>
         <span class="status-badge ${{isConfirmed ? 'show confirmed' : (currentComment ? 'show has-comment' : '')}}" id="modal-badge-${{ch.originalIndex}}">
           ${{isConfirmed ? '✅ 已確認' : (currentComment ? '💬 有意見' : '')}}
