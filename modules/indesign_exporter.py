@@ -28,24 +28,30 @@ def export_pdf_via_indesign(idml_path: str, pdf_path: str) -> bool:
     # AppleScript 指令
     # 這裡使用 general "Adobe InDesign" 名稱，macOS 會自動導向目前安裝的 InDesign 版本（如 InDesign 2024）
     applescript = f'''
-    tell application "Adobe InDesign"
+    tell application id "com.adobe.InDesign"
         activate
+        -- 關閉使用者互動以避免對話框（如缺字型、缺連結等）阻塞
+        set oldLevel to user interaction level of script preferences
+        set user interaction level of script preferences to never interact
         try
             -- 開啟 IDML 檔案
             set myDoc to open POSIX file "{abs_idml}"
             
             -- 匯出為 PDF
-            export myDoc to POSIX file "{abs_pdf}" format PDF export
+            export myDoc to POSIX file "{abs_pdf}" format PDF type
             
             -- 關閉文件不存檔（以維持原本檔案乾淨）
             close myDoc saving no
             
+            set user interaction level of script preferences to oldLevel
             return "SUCCESS"
         on error errMsg
+            set user interaction level of script preferences to oldLevel
             return "ERROR: " & errMsg
         end try
     end tell
     '''
+
 
     try:
         # 執行 macOS 內建的 osascript
