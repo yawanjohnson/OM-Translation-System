@@ -653,8 +653,8 @@ body {{
 <div class="header">
   <div class="header-left">
     <h1>📋 修改確認報告</h1>
-    <div style="font-size: 13px; color: rgba(255,255,255,0.85); margin-top: 6px; font-weight: 500;">
-      💡 如果您看到排版問題，請在網頁上留言。
+    <div style="font-size: 13px; color: rgba(255,255,255,0.85); margin-top: 6px; font-weight: 500; line-height: 1.5;">
+      💡 如果您看到排版問題，請在網頁上留言。如果是翻譯文字翻錯，請您直接在 Excel 中修改該欄位，並提供新 Excel 給我。
     </div>
     <div class="header-meta">
       <span class="meta-item">📁 {filename}</span>
