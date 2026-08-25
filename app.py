@@ -121,6 +121,32 @@ def api_stats():
     return jsonify(db.get_stats())
 
 
+@app.route('/api/translations/history', methods=['GET'])
+def api_get_history():
+    """取得資料庫修改歷程。"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        tid = request.args.get('translation_id', None, type=int)
+        per_page = 20
+        result = db.get_history(page=page, page_size=per_page, translation_id=tid)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/translations/history/<int:hid>/revert', methods=['POST'])
+def api_revert_history(hid):
+    """將資料庫內容回復至指定的歷史狀態。"""
+    try:
+        ok = db.revert_history(hid)
+        if ok:
+            return jsonify({'ok': True, 'message': '已成功回復資料至指定版本。'})
+        else:
+            return jsonify({'ok': False, 'message': '回復操作無效或資料未改變。'}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'message': f'回復失敗：{str(e)}'}), 500
+
+
 @app.route('/api/translations/duplicates', methods=['GET'])
 def api_get_duplicates():
     """掃描資料庫中的重複原文 (ENG) 條目。"""

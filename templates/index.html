@@ -263,6 +263,7 @@
         <button class="btn btn-primary btn-sm" onclick="openAddModal()">＋ 新增</button>
         <button class="btn btn-ghost btn-sm" onclick="exportDB()">⬇ 匯出 Excel</button>
         <button class="btn btn-outline btn-sm" onclick="openMergeDuplicatesModal()">✨ 整理重複項</button>
+        <button class="btn btn-outline btn-sm" onclick="openHistoryModal()">📋 修改歷程</button>
       </div>
     </div>
 
@@ -894,6 +895,45 @@
     <div class="modal-footer">
       <button class="btn btn-primary" onclick="downloadPMTemplate()">⬇ 下載範本 Excel</button>
       <button class="btn btn-ghost" onclick="closeModal('modal-pm-template')">關閉</button>
+    </div>
+  </div>
+</div>
+
+<!-- 修改歷程 Modal -->
+<div class="modal-overlay" id="modal-history" style="display:none">
+  <div class="modal modal-wide" style="max-width: 1000px;">
+    <div class="modal-header">
+      <h3>📋 資料庫修改歷程</h3>
+      <button class="modal-close" onclick="closeModal('modal-history')">✕</button>
+    </div>
+    <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+      <div id="history-loading" style="text-align: center; padding: 40px; display: none;">
+        <span class="spinner" style="display:inline-block; width:24px; height:24px; border:3px solid var(--accent); border-top-color:transparent; border-radius:50%; animation:spin 1s linear infinite; margin-right:10px; vertical-align:middle;"></span>
+        <span style="color:var(--text-muted); font-size:14px; vertical-align:middle;">正在載入修改歷程...</span>
+      </div>
+      <div id="history-content">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width: 160px;">時間</th>
+                <th style="width: 100px;">異動類別</th>
+                <th style="width: 80px;">條目 ID</th>
+                <th>異動內容</th>
+                <th style="width: 100px; text-align: center;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="history-tbody">
+              <!-- 動態填入 -->
+            </tbody>
+          </table>
+        </div>
+        <!-- 歷程分頁 -->
+        <div class="pagination" id="history-pagination" style="margin-top: 16px;"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-history')">關閉</button>
     </div>
   </div>
 </div>

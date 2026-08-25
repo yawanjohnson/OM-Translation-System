@@ -2978,3 +2978,157 @@ async function submitMergeDuplicates() {
   }
 }
 
+
+// ── 修改歷程 Modal 相關 ──
+let historyPage = 1;
+
+function openHistoryModal() {
+  historyPage = 1;
+  openModal('modal-history');
+  loadHistory(1);
+}
+
+async function loadHistory(page) {
+  historyPage = page;
+  document.getElementById('history-loading').style.display = 'block';
+  document.getElementById('history-content').style.display = 'none';
+  
+  try {
+    const res = await fetch(`/api/translations/history?page=${page}`);
+    const data = await res.json();
+    
+    const tbody = document.getElementById('history-tbody');
+    tbody.innerHTML = '';
+    
+    if (!data.items || data.items.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" class="empty-cell" style="text-align:center; padding:30px; color:var(--text-muted);">無修改歷程記錄</td></tr>`;
+    } else {
+      data.items.forEach(item => {
+        const tr = document.createElement('tr');
+        
+        let actionTag = '';
+        if (item.action === 'INSERT') {
+          actionTag = '<span class="tag tag-green">新增</span>';
+        } else if (item.action === 'UPDATE') {
+          actionTag = '<span class="tag tag-orange">修改</span>';
+        } else if (item.action === 'DELETE') {
+          actionTag = '<span class="tag tag-red">刪除</span>';
+        }
+        
+        const detailsHtml = formatHistoryDetails(item);
+        const revertBtn = `<button class="btn btn-outline btn-xs" style="color: var(--accent); border-color: var(--accent); font-size:11px; padding:2px 6px;" onclick="revertHistory(${item.id})">↩ 回復</button>`;
+        
+        tr.innerHTML = `
+          <td>${esc(item.created_at)}</td>
+          <td>${actionTag}</td>
+          <td class="mono">#${item.translation_id}</td>
+          <td><div style="max-height: 120px; overflow-y: auto; font-size: 13px; line-height: 1.5;">${detailsHtml}</div></td>
+          <td style="text-align: center;">${revertBtn}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+    
+    renderHistoryPagination(data.total, data.page, data.page_size);
+    document.getElementById('history-loading').style.display = 'none';
+    document.getElementById('history-content').style.display = 'block';
+  } catch (e) {
+    showToast('❌ 無法載入修改歷程', 'error');
+    document.getElementById('history-loading').style.display = 'none';
+  }
+}
+
+function formatHistoryDetails(item) {
+  const oldVal = item.old_val ? JSON.parse(item.old_val) : null;
+  const newVal = item.new_val ? JSON.parse(item.new_val) : null;
+  
+  if (item.action === 'INSERT') {
+    return `<span style="color: var(--text-muted);">新增內容：</span><strong style="color: var(--text-color);">${esc(newVal.ENG || '')}</strong> (型號: ${esc(newVal.product || '無')}, 章節: ${esc(newVal.chapter || '無')})`;
+  }
+  
+  if (item.action === 'DELETE') {
+    return `<span style="color: var(--text-muted);">刪除內容：</span><del style="color: var(--text-muted);">${esc(oldVal.ENG || '')}</del> (型號: ${esc(oldVal.product || '無')}, 章節: ${esc(oldVal.chapter || '無')})`;
+  }
+  
+  if (item.action === 'UPDATE') {
+    let changes = [];
+    const fields = ['product', 'chapter', 'ENG', 'GER', 'DUT', 'DAN', 'FRE', 'SPA', 'ITA', 'GRK', 'POL', 'PRB', 'RUS', 'CHT', 'JPN', 'KOR', 'VTM', 'THI', 'ARB', 'TRK', 'CHS'];
+    
+    fields.forEach(f => {
+      const oldF = (oldVal[f] || '').trim();
+      const newF = (newVal[f] || '').trim();
+      if (oldF !== newF) {
+        changes.push(`<span class="tag" style="background: rgba(120,120,120,0.15); color: var(--text-muted); border: 1px solid rgba(120,120,120,0.3); margin-right: 4px;">${f}</span> "${esc(oldF)}" ➔ <span style="color: #00c850; font-weight: 500;">"${esc(newF)}"</span>`);
+      }
+    });
+    
+    if (changes.length === 0) {
+      return `<span style="color: var(--text-muted);">無內容變更 (可能僅更新更新時間)</span>`;
+    }
+    return changes.join('<br/>');
+  }
+  return '';
+}
+
+function renderHistoryPagination(total, page, pageSize) {
+  const container = document.getElementById('history-pagination');
+  container.innerHTML = '';
+  const totalPages = Math.ceil(total / pageSize);
+  if (totalPages <= 1) return;
+  
+  let html = '';
+  if (page > 1) {
+    html += `<button class="btn btn-ghost btn-xs" onclick="loadHistory(${page - 1})">◀</button>`;
+  }
+  
+  const start = Math.max(1, page - 2);
+  const end = Math.min(totalPages, page + 2);
+  for (let i = start; i <= end; i++) {
+    if (i === page) {
+      html += `<button class="btn btn-primary btn-xs" disabled style="padding: 2px 6px; font-size:11px;">${i}</button>`;
+    } else {
+      html += `<button class="btn btn-ghost btn-xs" onclick="loadHistory(${i})" style="padding: 2px 6px; font-size:11px;">${i}</button>`;
+    }
+  }
+  
+  if (page < totalPages) {
+    html += `<button class="btn btn-ghost btn-xs" onclick="loadHistory(${page + 1})">▶</button>`;
+  }
+  
+  container.innerHTML = html;
+}
+
+async function revertHistory(hid) {
+  if (!confirm('您確定要將資料庫回復至此版本狀態嗎？這會覆蓋現有內容。')) {
+    return;
+  }
+  
+  showLoading('正在執行回復操作...');
+  try {
+    const res = await fetch(`/api/translations/history/${hid}/revert`, {
+      method: 'POST'
+    });
+    const result = await res.json();
+    hideLoading();
+    
+    if (result.ok) {
+      showToast(result.message || '已成功回復資料至指定版本。');
+      loadHistory(historyPage);
+      if (typeof searchDB === 'function') {
+        searchDB();
+      }
+      if (typeof loadDBStats === 'function') {
+        loadDBStats();
+      }
+      if (typeof updateConflictBadge === 'function') {
+        updateConflictBadge();
+      }
+    } else {
+      showToast(result.message || '回復失敗', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('❌ 回復操作失敗: ' + e.message, 'error');
+  }
+}
+

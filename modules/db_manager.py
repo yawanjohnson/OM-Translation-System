@@ -190,15 +190,54 @@ class DBManager:
             resolved_at   TEXT DEFAULT (datetime('now','localtime'))
         );
         CREATE INDEX IF NOT EXISTS idx_log_eng ON conflict_logs (eng_text);
+
+        CREATE TABLE IF NOT EXISTS translation_history (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            translation_id INTEGER,
+            action         TEXT,
+            old_val        TEXT,
+            new_val        TEXT,
+            created_at     TEXT DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_history_tid ON translation_history (translation_id);
         """
         with self._get_conn() as conn:
             conn.executescript(create_sql)
+
+    def _get_row_by_id(self, conn, tid) -> dict | None:
+        row = conn.execute('SELECT * FROM translations WHERE id = ?', (tid,)).fetchone()
+        return dict(row) if row else None
+
+    def _has_changes(self, old_row, new_row) -> bool:
+        for key in ['product', 'chapter'] + LANG_CODES:
+            if old_row.get(key) != new_row.get(key):
+                return True
+        return False
+
+    def _log_history(self, conn, translation_id, action, old_val, new_val):
+        import json
+        sql = """
+        INSERT INTO translation_history (translation_id, action, old_val, new_val)
+        VALUES (?, ?, ?, ?)
+        """
+        old_str = json.dumps(old_val, ensure_ascii=False) if old_val else None
+        new_str = json.dumps(new_val, ensure_ascii=False) if new_val else None
+        conn.execute(sql, (translation_id, action, old_str, new_str))
+
+    def export_to_git_json(self):
+        import json
+        with self._get_conn() as conn:
+            rows = conn.execute('SELECT * FROM translations ORDER BY id').fetchall()
+            data_list = [dict(r) for r in rows]
+        target_path = os.path.join(os.path.dirname(self.db_path), 'translations_git.json')
+        with open(target_path, 'w', encoding='utf-8') as f:
+            json.dump(data_list, f, ensure_ascii=False, indent=2, sort_keys=True)
 
     # ------------------------------------------------------------------ #
     # CRUD
     # ------------------------------------------------------------------ #
 
-    def add(self, data: dict) -> int:
+    def add(self, data: dict, suppress_export=False) -> int:
         """新增一筆翻譯。data 可含任意語言欄位 + product/chapter。"""
         cols = []
         vals = []
@@ -211,9 +250,14 @@ class DBManager:
         sql = f"INSERT INTO translations ({', '.join(cols)}) VALUES ({', '.join('?' * len(vals))})"
         with self._get_conn() as conn:
             cur = conn.execute(sql, vals)
-            return cur.lastrowid
+            tid = cur.lastrowid
+            new_row = self._get_row_by_id(conn, tid)
+            self._log_history(conn, tid, 'INSERT', None, new_row)
+        if not suppress_export:
+            self.export_to_git_json()
+        return tid
 
-    def update(self, tid: int, data: dict) -> bool:
+    def update(self, tid: int, data: dict, suppress_export=False) -> bool:
         """更新指定 id 的欄位。"""
         allowed = set(['product', 'chapter'] + LANG_CODES)
         sets = []
@@ -228,18 +272,140 @@ class DBManager:
         vals.append(tid)
         sql = f"UPDATE translations SET {', '.join(sets)} WHERE id = ?"
         with self._get_conn() as conn:
+            old_row = self._get_row_by_id(conn, tid)
+            if not old_row:
+                return False
             cur = conn.execute(sql, vals)
-            return cur.rowcount > 0
+            if cur.rowcount > 0:
+                new_row = self._get_row_by_id(conn, tid)
+                if self._has_changes(old_row, new_row):
+                    self._log_history(conn, tid, 'UPDATE', old_row, new_row)
+                updated = True
+            else:
+                updated = False
+        if updated and not suppress_export:
+            self.export_to_git_json()
+        return updated
 
-    def delete(self, tid: int) -> bool:
+    def delete(self, tid: int, suppress_export=False) -> bool:
         with self._get_conn() as conn:
+            old_row = self._get_row_by_id(conn, tid)
+            if not old_row:
+                return False
             cur = conn.execute('DELETE FROM translations WHERE id = ?', (tid,))
-            return cur.rowcount > 0
+            if cur.rowcount > 0:
+                self._log_history(conn, tid, 'DELETE', old_row, None)
+                deleted = True
+            else:
+                deleted = False
+        if deleted and not suppress_export:
+            self.export_to_git_json()
+        return deleted
 
     def get(self, tid: int) -> dict | None:
         with self._get_conn() as conn:
             row = conn.execute('SELECT * FROM translations WHERE id = ?', (tid,)).fetchone()
             return dict(row) if row else None
+
+    # ------------------------------------------------------------------ #
+    # 歷史紀錄與回復 (History & Revert)
+    # ------------------------------------------------------------------ #
+
+    def get_history(self, page: int = 1, page_size: int = 50, translation_id: int = None) -> dict:
+        where_clauses = []
+        params = []
+        if translation_id:
+            where_clauses.append("translation_id = ?")
+            params.append(translation_id)
+            
+        where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+        
+        with self._get_conn() as conn:
+            total = conn.execute(f"SELECT COUNT(*) FROM translation_history {where_sql}", params).fetchone()[0]
+            offset = (page - 1) * page_size
+            rows = conn.execute(
+                f"SELECT * FROM translation_history {where_sql} ORDER BY id DESC LIMIT ? OFFSET ?",
+                params + [page_size, offset]
+            ).fetchall()
+            
+        return {
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'items': [dict(r) for r in rows]
+        }
+
+    def revert_history(self, history_id: int) -> bool:
+        import json
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM translation_history WHERE id = ?", (history_id,)).fetchone()
+            if not row:
+                raise ValueError(f"History entry #{history_id} not found")
+                
+            history_item = dict(row)
+            action = history_item['action']
+            tid = history_item['translation_id']
+            old_val = json.loads(history_item['old_val']) if history_item['old_val'] else None
+            new_val = json.loads(history_item['new_val']) if history_item['new_val'] else None
+            
+            reverted = False
+            if action == 'INSERT':
+                current = self._get_row_by_id(conn, tid)
+                if current:
+                    conn.execute("DELETE FROM translations WHERE id = ?", (tid,))
+                    self._log_history(conn, tid, 'DELETE', current, None)
+                    reverted = True
+                
+            elif action == 'DELETE':
+                current = self._get_row_by_id(conn, tid)
+                if current:
+                    conn.execute("DELETE FROM translations WHERE id = ?", (tid,))
+                
+                cols = []
+                vals = []
+                for key in ['id', 'product', 'chapter'] + LANG_CODES:
+                    if key in old_val:
+                        cols.append(f'"{key}"')
+                        vals.append(old_val[key])
+                sql = f"INSERT INTO translations ({', '.join(cols)}) VALUES ({', '.join('?' * len(vals))})"
+                conn.execute(sql, vals)
+                new_row = self._get_row_by_id(conn, tid)
+                self._log_history(conn, tid, 'INSERT', None, new_row)
+                reverted = True
+                
+            elif action == 'UPDATE':
+                current = self._get_row_by_id(conn, tid)
+                if not current:
+                    cols = []
+                    vals = []
+                    for key in ['id', 'product', 'chapter'] + LANG_CODES:
+                        if key in old_val:
+                            cols.append(f'"{key}"')
+                            vals.append(old_val[key])
+                    sql = f"INSERT INTO translations ({', '.join(cols)}) VALUES ({', '.join('?' * len(vals))})"
+                    conn.execute(sql, vals)
+                    new_row = self._get_row_by_id(conn, tid)
+                    self._log_history(conn, tid, 'INSERT', None, new_row)
+                    reverted = True
+                else:
+                    sets = []
+                    vals = []
+                    for key in ['product', 'chapter'] + LANG_CODES:
+                        if key in old_val:
+                            sets.append(f'"{key}" = ?')
+                            vals.append(old_val[key])
+                    sets.append('updated_at = datetime("now","localtime")')
+                    vals.append(tid)
+                    sql = f"UPDATE translations SET {', '.join(sets)} WHERE id = ?"
+                    conn.execute(sql, vals)
+                    new_row = self._get_row_by_id(conn, tid)
+                    if self._has_changes(current, new_row):
+                        self._log_history(conn, tid, 'UPDATE', current, new_row)
+                    reverted = True
+                    
+        if reverted:
+            self.export_to_git_json()
+        return reverted
 
     # ------------------------------------------------------------------ #
     # 搜尋
@@ -453,11 +619,13 @@ class DBManager:
                 continue
             existing = self.lookup_eng(eng_val)
             if existing:
-                self.update(existing['id'], data)
+                self.update(existing['id'], data, suppress_export=True)
                 updated += 1
             else:
-                self.add(data)
+                self.add(data, suppress_export=True)
                 added += 1
+        if added > 0 or updated > 0:
+            self.export_to_git_json()
         return {'added': added, 'updated': updated, 'skipped': skipped, 'skipped_details': skipped_details}
 
     def get_stats(self) -> dict:
@@ -706,12 +874,20 @@ class DBManager:
                 
                 # 更新 master_row
                 if update_data:
+                    old_master = self._get_row_by_id(conn, master_id)
                     sets = [f'"{k}" = ?' for k in update_data.keys()]
                     vals = list(update_data.values()) + [master_id]
                     conn.execute(f"UPDATE translations SET {', '.join(sets)} WHERE id = ?", vals)
+                    new_master = self._get_row_by_id(conn, master_id)
+                    if old_master and new_master and self._has_changes(old_master, new_master):
+                        self._log_history(conn, master_id, 'UPDATE', old_master, new_master)
                 
                 # 刪除其他重複行
                 if other_ids:
+                    for oid in other_ids:
+                        old_row = self._get_row_by_id(conn, oid)
+                        if old_row:
+                            self._log_history(conn, oid, 'DELETE', old_row, None)
                     placeholders = ', '.join('?' * len(other_ids))
                     conn.execute(f"DELETE FROM translations WHERE id IN ({placeholders})", other_ids)
                     deleted_rows_count += len(other_ids)
@@ -758,18 +934,29 @@ class DBManager:
                             
                     # 更新主列
                     if update_data:
+                        old_master = self._get_row_by_id(conn, master_id)
                         sets = [f'"{k}" = ?' for k in update_data.keys()]
                         vals = list(update_data.values()) + [master_id]
                         conn.execute(f"UPDATE translations SET {', '.join(sets)} WHERE id = ?", vals)
+                        new_master = self._get_row_by_id(conn, master_id)
+                        if old_master and new_master and self._has_changes(old_master, new_master):
+                            self._log_history(conn, master_id, 'UPDATE', old_master, new_master)
                         
                     # 刪除其他列
                     if other_ids:
+                        for oid in other_ids:
+                            old_row = self._get_row_by_id(conn, oid)
+                            if old_row:
+                                self._log_history(conn, oid, 'DELETE', old_row, None)
                         placeholders = ', '.join('?' * len(other_ids))
                         conn.execute(f"DELETE FROM translations WHERE id IN ({placeholders})", other_ids)
                         deleted_rows_count += len(other_ids)
                         
                     merged_conflict_count += 1
-                    
+        
+        if merged_auto_count > 0 or merged_conflict_count > 0:
+            self.export_to_git_json()
+            
         return {
             'ok': True,
             'merged_auto_count': merged_auto_count,
