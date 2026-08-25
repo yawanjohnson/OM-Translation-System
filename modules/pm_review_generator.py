@@ -30,6 +30,84 @@ def generate_pm_review_html(
     filename   = meta.get('filename', 'document.idml')
     date_str   = meta.get('date', datetime.now().strftime('%Y-%m-%d %H:%M'))
     run_id     = meta.get('run_id', '')
+    has_pdf    = meta.get('has_pdf', False)
+    pdf_filename = meta.get('pdf_filename', '')
+
+    if has_pdf:
+        # Split-screen view with PDF
+        nf_html = ""
+        if not_found:
+            nf_html += '<div class="section-title" style="margin-top:20px; margin-bottom:0">❌ 未找到 — 請確認原文是否正確</div>'
+            for nf in not_found:
+                nf_html += f"""
+                <div class="not-found-card" style="margin-top:0">
+                  <div class="nf-icon">❌</div>
+                  <div class="nf-body">
+                    <div class="nf-lang">{_esc(nf.get("lang_code",""))}</div>
+                    <div class="nf-text">搜尋原文：{_esc(nf.get("find",""))}</div>
+                    <div class="nf-text" style="text-decoration:none;color:#374151">預計改為：{_esc(nf.get("replace",""))}</div>
+                    <div class="nf-note">{_esc(nf.get("note",""))}</div>
+                  </div>
+                </div>"""
+        
+        views_html = f"""
+        <!-- Split-screen view with PDF -->
+        <div style="display: flex; gap: 20px; height: calc(100vh - 160px); padding: 0 40px 20px 40px; margin-top: 15px;">
+          <!-- Left: PDF iframe -->
+          <div style="flex: 1.3; background: white; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; height: 100%; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+            <iframe src="{pdf_filename}" style="width: 100%; height: 100%; border: none;"></iframe>
+          </div>
+          <!-- Right: Checklist / Cards -->
+          <div style="flex: 0.7; height: 100%; overflow-y: auto; padding-right: 12px; display: flex; flex-direction: column; gap: 14px;">
+            <div class="section-title" style="margin-bottom:0">✅ 修改清單（共 {len(changes)} 條）</div>
+            <div id="cards-container"></div>
+            {nf_html}
+          </div>
+        </div>
+        """
+    else:
+        # Standard tabbed view
+        nf_html = ""
+        if not_found:
+            nf_html += '<div class="section-title">❌ 未找到 — 請確認原文是否正確</div>'
+            for nf in not_found:
+                nf_html += f"""
+                <div class="not-found-card">
+                  <div class="nf-icon">❌</div>
+                  <div class="nf-body">
+                    <div class="nf-lang">{_esc(nf.get("lang_code",""))}</div>
+                    <div class="nf-text">搜尋原文：{_esc(nf.get("find",""))}</div>
+                    <div class="nf-text" style="text-decoration:none;color:#374151">預計改為：{_esc(nf.get("replace",""))}</div>
+                    <div class="nf-note">{_esc(nf.get("note",""))}</div>
+                  </div>
+                </div>"""
+        
+        title_html = f'<div class="section-title">✅ 修改清單（共 {len(changes)} 條）</div>' if changes else ''
+        
+        views_html = f"""
+        <!-- VIEW 1: List View -->
+        <div class="view-container active" id="view-list">
+          <div class="main">
+            {title_html}
+            <div id="cards-container"></div>
+            {nf_html}
+          </div>
+        </div>
+
+        <!-- VIEW 2: Layout View -->
+        <div class="view-container" id="view-layout">
+          <div class="layout-container">
+            <div class="layout-sidebar" id="layout-pages-list">
+              <!-- Page buttons injected by JS -->
+            </div>
+            <div class="layout-stage">
+              <div class="layout-canvas-wrap" id="layout-canvas-container">
+                <!-- Rendered page elements -->
+              </div>
+            </div>
+          </div>
+        </div>
+        """
 
     # 將資料序列化給 JS 使用
     changes_json   = json.dumps(changes,   ensure_ascii=False)
@@ -675,11 +753,7 @@ body {{
   </div>
 </div>
 
-<!-- Tabs Switcher -->
-<div class="view-tabs no-print">
-  <button class="view-tab active" id="tab-btn-list" onclick="switchView('list')">📋 修改對照列表</button>
-  <button class="view-tab" id="tab-btn-layout" onclick="switchView('layout')">🎨 說明書版面預覽</button>
-</div>
+{'' if has_pdf else '<div class="view-tabs no-print"><button class="view-tab active" id="tab-btn-list" onclick="switchView(\'list\')">📋 修改對照列表</button><button class="view-tab" id="tab-btn-layout" onclick="switchView(\'layout\')">🎨 說明書版面預覽</button></div>'}
 
 <!-- Progress Bar -->
 <div class="progress-wrap no-print">
@@ -689,42 +763,7 @@ body {{
   <div class="progress-text" id="progress-text">0 / {len(changes)} 已確認</div>
 </div>
 
-<!-- VIEW 1: List View -->
-<div class="view-container active" id="view-list">
-  <div class="main">
-    {'<div class="section-title">✅ 修改清單（共 ' + str(len(changes)) + ' 條）</div>' if changes else ''}
-    <div id="cards-container"></div>
-
-    {'<!-- Not Found -->' if not_found else ''}
-    {'<div class="section-title">❌ 未找到 — 請確認原文是否正確</div>' if not_found else ''}
-    {''.join([
-      f'''<div class="not-found-card">
-        <div class="nf-icon">❌</div>
-        <div class="nf-body">
-          <div class="nf-lang">{nf.get("lang_code","")}</div>
-          <div class="nf-text">搜尋原文：{_esc(nf.get("find",""))}</div>
-          <div class="nf-text" style="text-decoration:none;color:#374151">預計改為：{_esc(nf.get("replace",""))}</div>
-          <div class="nf-note">{_esc(nf.get("note",""))}</div>
-        </div>
-      </div>'''
-      for nf in not_found
-    ])}
-  </div>
-</div>
-
-<!-- VIEW 2: Layout View -->
-<div class="view-container" id="view-layout">
-  <div class="layout-container">
-    <div class="layout-sidebar" id="layout-pages-list">
-      <!-- Page buttons injected by JS -->
-    </div>
-    <div class="layout-stage">
-      <div class="layout-canvas-wrap" id="layout-canvas-container">
-        <!-- Rendered page elements -->
-      </div>
-    </div>
-  </div>
-</div>
+{views_html}
 
 <!-- Review Popup Modal (for layout view) -->
 <div class="modal-overlay" id="frame-modal" onclick="closeFrameModal()">

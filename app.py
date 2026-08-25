@@ -546,6 +546,30 @@ def api_patch_upload_instructions():
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
+@app.route('/api/patch/upload-pdf', methods=['POST'])
+def api_patch_upload_pdf():
+    """
+    接收設計師上傳的確認版 PDF。
+    暫存在 outputs 目錄下，檔名為 {run_id}.pdf。
+    """
+    if 'file' not in request.files:
+        return jsonify({'ok': False, 'error': '請上傳 PDF 檔案'}), 400
+    run_id = request.form.get('run_id', '')
+    if not run_id:
+        return jsonify({'ok': False, 'error': '未提供 run_id'}), 400
+
+    try:
+        file = request.files['file']
+        if not file.filename.lower().endswith('.pdf'):
+            return jsonify({'ok': False, 'error': '檔案必須是 PDF 格式'}), 400
+        
+        pdf_path = os.path.join(OUTPUT_DIR, f'{run_id}.pdf')
+        file.save(pdf_path)
+        return jsonify({'ok': True, 'filename': f'{run_id}.pdf'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 @app.route('/api/patch/run', methods=['POST'])
 def api_patch_run():
     """
@@ -898,18 +922,44 @@ def api_pm_review_generate():
 
     from datetime import datetime
     try:
+        pdf_temp_filename = f'{run_id}.pdf'
+        pdf_temp_path = os.path.join(OUTPUT_DIR, pdf_temp_filename)
+        has_pdf = os.path.exists(pdf_temp_path)
+
+        pdf_dest_filename = f'{base_name}.pdf'
+
+        meta = {
+            'filename':  orig_name,
+            'date':      datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'run_id':    run_id,
+        }
+        if has_pdf:
+            meta['pdf_filename'] = pdf_dest_filename
+            meta['has_pdf'] = True
+
         generate_pm_review_html(
             changes=changes,
             not_found=not_found,
             output_path=out_path,
-            meta={
-                'filename':  orig_name,
-                'date':      datetime.now().strftime('%Y-%m-%d %H:%M'),
-                'run_id':    run_id,
-            },
+            meta=meta,
             layout=layout
         )
-        return jsonify({'ok': True, 'html_file': html_filename})
+
+        if has_pdf:
+            import zipfile
+            zip_filename = f'PM確認套件_{base_name}_{run_id}.zip'
+            zip_path = os.path.join(OUTPUT_DIR, zip_filename)
+            
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                # 寫入 HTML (在 ZIP 中使用友善的檔名)
+                html_in_zip = f'PM確認_{base_name}.html'
+                zf.write(out_path, arcname=html_in_zip)
+                # 寫入 PDF
+                zf.write(pdf_temp_path, arcname=pdf_dest_filename)
+            
+            return jsonify({'ok': True, 'zip_file': zip_filename, 'is_zip': True})
+        else:
+            return jsonify({'ok': True, 'html_file': html_filename, 'is_zip': False})
     except Exception as e:
         import traceback
         return jsonify({'ok': False, 'error': str(e), 'detail': traceback.format_exc()}), 500

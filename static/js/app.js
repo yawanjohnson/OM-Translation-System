@@ -122,6 +122,7 @@ const TAB_TITLES = {
   apply:    '套用語言到 IDML',
   conflict: '翻譯衝突管理',
   extract:  '智慧文字提取與對照',
+  'pm-review': 'PM 審核管理',
 };
 
 document.querySelectorAll('.nav-item').forEach(btn => {
@@ -167,6 +168,8 @@ function handleDrop(event, type) {
     uploadPMReplyFromFile(file);
   } else if (type === 'extract') {
     handleExtractUploadFromFiles(files);
+  } else if (type === 'review-pdf') {
+    uploadReviewPDFFromFile(file);
   }
 }
 
@@ -489,15 +492,48 @@ async function generatePMReview() {
     hideLoading();
     if (!data.ok) { showToast('❌ ' + data.error, 'error'); return; }
 
-    // 直接下載 HTML
-    window.location.href = `/api/patch/download/${encodeURIComponent(data.html_file)}`;
+    // 下載檔案 (HTML 或 ZIP)
+    const dlFile = data.is_zip ? data.zip_file : data.html_file;
+    window.location.href = `/api/patch/download/${encodeURIComponent(dlFile)}`;
 
-    // 顯示 PM 回覆解析區
-    document.getElementById('pm-reply-panel').style.display = 'block';
-    showToast('✅ PM 確認頁已下載！傳給 PM 後，等 PM 回傳 JSON 再上傳下方');
+    if (data.is_zip) {
+      showToast('✅ PM 確認套件 ZIP 已下載！內含 HTML 與 PDF。');
+    } else {
+      showToast('✅ PM 確認頁已下載！傳給 PM 後，等 PM 回傳 JSON 再上傳至「PM 審核管理」分頁。');
+    }
   } catch (e) {
     hideLoading();
     showToast('❌ ' + e.message, 'error');
+  }
+}
+
+function uploadReviewPDF(input) { if (input.files[0]) uploadReviewPDFFromFile(input.files[0]); }
+
+async function uploadReviewPDFFromFile(file) {
+  if (!patchState.runId) { showToast('請先執行修正，再上傳對照 PDF', 'error'); return; }
+  if (file.type !== 'application/pdf' && !file.name.endsWith('.pdf')) {
+    showToast('❌ 請上傳 PDF 格式檔案', 'error');
+    return;
+  }
+
+  showLoading('上傳確認版 PDF 中...');
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('run_id', patchState.runId);
+
+  try {
+    const res = await fetch('/api/patch/upload-pdf', { method: 'POST', body: fd });
+    const data = await res.json();
+    hideLoading();
+    if (!data.ok) { showToast('❌ ' + data.error, 'error'); return; }
+
+    // 更新介面顯示
+    document.getElementById('lbl-review-pdf').textContent = `✅ 已上傳 PDF: ${file.name}`;
+    document.getElementById('dz-review-pdf').style.borderColor = 'var(--success-text)';
+    showToast('✅ PDF 上傳成功！');
+  } catch (e) {
+    hideLoading();
+    showToast('❌ 連線失敗：' + e.message, 'error');
   }
 }
 async function exportRealPDF() {

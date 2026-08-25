@@ -26,6 +26,10 @@
       <span class="nav-icon">✏️</span>
       <span class="nav-label">IDML 修正</span>
     </button>
+    <button class="nav-item" data-tab="pm-review" id="nav-pm-review">
+      <span class="nav-icon">📨</span>
+      <span class="nav-label">PM 審核管理</span>
+    </button>
     <button class="nav-item" data-tab="database" id="nav-database">
       <span class="nav-icon">🌐</span>
       <span class="nav-label">多語言資料庫</span>
@@ -179,6 +183,23 @@
 
       </div>
 
+      <!-- 上傳手動 PDF 區 -->
+      <div style="background:rgba(255,255,255,0.02); border:1px dashed rgba(255,255,255,0.15); border-radius:10px; padding:18px; margin: 18px 0;">
+        <h3 style="font-size:13px; font-weight:700; margin-bottom:10px; display:flex; align-items:center; gap:6px; color:var(--text-primary)">
+          🖨 上傳手動匯出的 PDF <span style="font-weight:normal; font-size:11px; color:var(--text-muted)">（非必填，上傳後「產出 PM 確認頁」將會包含此 PDF 進行左右分欄對照）</span>
+        </h3>
+        <div class="dropzone sm" id="dz-review-pdf"
+             ondragover="event.preventDefault();this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="handleDrop(event,'review-pdf')">
+          <input type="file" id="input-review-pdf" accept=".pdf" style="display:none" onchange="uploadReviewPDF(this)"/>
+          <div class="dz-icon">🖨</div>
+          <div class="dz-label" id="lbl-review-pdf">將手動匯出的 PDF 檔案拖曳至此，或點擊選擇檔案</div>
+          <button class="btn btn-outline btn-sm" onclick="document.getElementById('input-review-pdf').click()">選擇 PDF 檔案</button>
+        </div>
+      </div>
+
+
       <!-- 未找到清單 -->
       <div id="not-found-section" style="display:none">
         <div class="section-divider">❌ 未找到的原文</div>
@@ -222,9 +243,13 @@
           </table>
         </div>
       </div>
-      </div>
     </div>
+  </section>
 
+  <!-- ════════════════════════════════════ -->
+  <!-- TAB: PM 審核管理                     -->
+  <!-- ════════════════════════════════════ -->
+  <section class="tab-content" id="tab-pm-review">
     <!-- PM 回覆解析區 -->
     <div class="panel mt" id="pm-reply-panel">
       <h2 class="panel-title">📨 PM 回傳確認檔解析</h2>
