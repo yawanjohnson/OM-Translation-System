@@ -1263,6 +1263,10 @@ async function loadPendingConflicts() {
                 <input type="radio" name="res-${c.id}" value="ADD_NEW" style="cursor: pointer;"/>
                 新增
               </label>
+              <label style="cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--error-text);">
+                <input type="radio" name="res-${c.id}" value="DELETE" style="cursor: pointer;"/>
+                刪除項目
+              </label>
             </div>
           </td>
         `;
@@ -1305,7 +1309,7 @@ async function submitResolutions() {
   });
   
   if (resolutions.length === 0) {
-    showToast('請先將至少一個項目的決策選為「保留現有」、「覆蓋匯入」或「新增」', 'error');
+    showToast('請先將至少一個項目的決策選為「保留現有」、「覆蓋匯入」、「新增」或「刪除」', 'error');
     return;
   }
   
@@ -1368,15 +1372,23 @@ async function searchConflictLogs() {
           decisionText = '<span class="tag tag-orange">覆蓋新版</span>';
         } else if (log.decision === 'ADD_NEW') {
           decisionText = '<span class="tag tag-green">新增翻譯</span>';
+        } else if (log.decision === 'DELETE') {
+          decisionText = '<span class="tag tag-red">刪除條目</span>';
         } else {
           decisionText = '<span class="tag tag-blue">保留舊版</span>';
         }
           
         const dbDiff = diffHighlight(log.db_val, log.chosen_val, 'diff-del');
         const importDiff = diffHighlight(log.import_val, log.chosen_val, 'diff-ins');
-        const chosenText = (log.decision === 'KEEP_IMPORT' || log.decision === 'ADD_NEW')
-          ? `<strong style="color:var(--success-text);">${esc(log.chosen_val)}</strong>`
-          : `<strong>${esc(log.chosen_val)}</strong>`;
+        
+        let chosenText = '';
+        if (log.decision === 'DELETE') {
+          chosenText = `<del style="color:var(--error-text);">${esc(log.chosen_val)}</del>`;
+        } else if (log.decision === 'KEEP_IMPORT' || log.decision === 'ADD_NEW') {
+          chosenText = `<strong style="color:var(--success-text);">${esc(log.chosen_val)}</strong>`;
+        } else {
+          chosenText = `<strong>${esc(log.chosen_val)}</strong>`;
+        }
           
         tr.innerHTML = `
           <td>${(conflictLogPage - 1) * 15 + idx + 1}</td>

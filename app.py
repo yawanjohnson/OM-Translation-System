@@ -340,6 +340,8 @@ def api_resolve_conflicts():
             import_val = conflict['import_val']
             
             chosen_val = import_val if decision in ('KEEP_IMPORT', 'ADD_NEW') else db_val
+            if decision == 'DELETE':
+                chosen_val = '[已刪除]'
             
             # 1. 如果選擇匯入新版，更新 translations 表中對應翻譯
             if decision == 'KEEP_IMPORT':
@@ -355,6 +357,12 @@ def api_resolve_conflicts():
                     'ENG': eng_text,
                     lang_code: import_val
                 })
+            
+            # 1c. 如果選擇刪除，則自 translations 資料表刪除該翻譯條目
+            elif decision == 'DELETE':
+                existing = db.lookup_eng(eng_text)
+                if existing:
+                    db.delete(existing['id'])
                     
             # 2. 寫入衝突日誌表
             db.add_conflict_log(
