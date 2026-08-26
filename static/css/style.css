@@ -1069,3 +1069,262 @@ body {
   word-break: break-all;
 }
 
+
+/* ══════════════════════════════════════════════════════════
+   資料庫分頁 - 新版搜尋與顯示系統 (v2)
+   ══════════════════════════════════════════════════════════ */
+
+/* 搜尋控制面板 */
+.db-search-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Row 1: 主搜尋列 */
+.db-search-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.db-search-input-wrap {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  align-items: center;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 10px;
+  gap: 8px;
+  transition: border-color 0.2s;
+}
+.db-search-input-wrap:focus-within {
+  border-color: var(--accent);
+}
+.db-search-input-wrap .search-icon { font-size: 14px; color: var(--text-muted); }
+.db-search-input-wrap .search-input {
+  flex: 1; border: none; background: transparent;
+  color: var(--text-primary); font-size: 13px; padding: 8px 0; outline: none;
+}
+.db-clear-btn {
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; font-size: 12px; padding: 2px 4px;
+  border-radius: 4px; transition: all 0.15s;
+}
+.db-clear-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* 搜尋模式 Toggle */
+.search-mode-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.mode-btn {
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.mode-btn:hover { background: var(--bg-hover); }
+.mode-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* 忽略前綴 Toggle */
+.prefix-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.prefix-toggle input[type="checkbox"] { cursor: pointer; accent-color: var(--accent); }
+.prefix-toggle-label { font-size: 12px; color: var(--text-secondary); }
+.prefix-toggle:hover .prefix-toggle-label { color: var(--text-primary); }
+
+/* Row 2: 篩選列 */
+.db-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.filter-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-weight: 500;
+}
+.filter-select {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 5px 8px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  max-width: 160px;
+}
+.filter-select:focus { outline: none; border-color: var(--accent); }
+
+.db-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+/* Row 3: 計數 + 每頁筆數 */
+.db-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.db-result-count {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 500;
+}
+.db-per-page {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.per-page-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.per-page-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.per-page-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* ── 欄位樣式 ── */
+.col-missing { color: var(--text-muted); }
+.col-focus { background: rgba(79, 142, 247, 0.08); font-weight: 600; }
+
+.db-cell { cursor: default; transition: background 0.15s; }
+.db-cell:hover { background: var(--bg-hover); }
+.db-cell[ondblclick] { cursor: text; }
+
+.cell-missing {
+  background: #f7f7f7 !important;
+  color: #bbb;
+}
+/* Dark mode for missing cell */
+@media (prefers-color-scheme: dark) {
+  .cell-missing { background: rgba(255,255,255,0.03) !important; color: #555; }
+}
+
+.cell-focus { background: rgba(79, 142, 247, 0.05); }
+.cell-empty { color: var(--text-muted); font-style: italic; font-size: 11px; }
+
+/* ── 關鍵字高亮 ── */
+mark.kw-highlight {
+  background: #ffe066;
+  color: #333;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* ── 精確搜尋差異標示 ── */
+span.exact-match { color: var(--success, #4caf50); font-weight: 500; }
+span.diff-char { color: #e05252; font-weight: 700; }
+
+/* ── Inline Edit ── */
+.inline-edit-input {
+  width: 100%;
+  min-width: 100px;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 2px solid var(--accent);
+  border-radius: 5px;
+  resize: vertical;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(79,142,247,0.15);
+}
+
+/* ── Undo Toast ── */
+#undo-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 20px;
+  font-size: 13px;
+  color: var(--text-primary);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.25s ease;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+#undo-toast.show {
+  opacity: 1;
+  pointer-events: all;
+  transform: translateX(-50%) translateY(0);
+}
+#undo-toast button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: opacity 0.15s;
+}
+#undo-toast button:hover { opacity: 0.85; }
+
+/* 匯入 Tab 範本提示 */
+.import-template-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  background: rgba(79,142,247,0.06);
+  border-radius: 8px;
+  border: 1px solid rgba(79,142,247,0.15);
+}
+.import-hint-text { font-size: 11px; color: var(--text-muted); }

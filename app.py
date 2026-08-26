@@ -75,13 +75,16 @@ def api_lang_info():
 
 @app.route('/api/translations', methods=['GET'])
 def api_list():
-    q        = request.args.get('q', '')
-    lang     = request.args.get('lang', 'ENG')
-    product  = request.args.get('product', '')
-    chapter  = request.args.get('chapter', '')
-    page     = int(request.args.get('page', 1))
-    per_page = int(request.args.get('per_page', 50))
-    result   = db.search(q, lang, product, chapter, page, per_page)
+    q            = request.args.get('q', '')
+    lang         = request.args.get('lang', '')
+    product      = request.args.get('product', '')
+    chapter      = request.args.get('chapter', '')
+    page         = int(request.args.get('page', 1))
+    per_page     = int(request.args.get('per_page', 50))
+    exact        = request.args.get('exact', '0') == '1'
+    strip_prefix = request.args.get('strip_prefix', '1') == '1'
+    result = db.search(q, lang, product, chapter, page, per_page,
+                       exact=exact, strip_prefix=strip_prefix)
     return jsonify(result)
 
 
@@ -119,6 +122,11 @@ def api_delete(tid):
 @app.route('/api/translations/stats')
 def api_stats():
     return jsonify(db.get_stats())
+
+
+@app.route('/api/translations/filter-options')
+def api_filter_options():
+    return jsonify(db.get_filter_options())
 
 
 @app.route('/api/translations/history', methods=['GET'])

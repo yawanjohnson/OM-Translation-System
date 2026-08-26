@@ -39,10 +39,15 @@ let idmlImportState = {
 
 let dbState = {
   page: 1,
-  perPage: 50,
+  perPage: 25,
   total: 0,
   query: '',
   lang: '',
+  product: '',
+  chapter: '',
+  mode: 'keyword',   // 'keyword' | 'exact'
+  focusLang: '',     // 要聆焦顯示的目標語言
+  stripPrefix: true, // 忽略締號前綴
 };
 
 let editingId = null;
@@ -56,6 +61,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   initLangBadges();
   initLangSelects();
   initApplyLangSelector();
+  populateFocusLangSelect();
+  loadFilterOptions();
   loadDBStats();
   searchDB();
   updateConflictBadge();
@@ -668,6 +675,7 @@ function downloadResult(type) {
 // ──────────────────────────────────────────────────────
 // TAB 2: 多語言資料庫
 // ──────────────────────────────────────────────────────
+
 function debounceSearch() {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(searchDB, 300);
@@ -675,28 +683,59 @@ function debounceSearch() {
 
 function clearSearch() {
   document.getElementById('db-search-input').value = '';
-  document.getElementById('db-search-lang').value = '';
-  dbState.query = '';
-  dbState.lang  = '';
-  dbState.page  = 1;
+  dbState.query   = '';
+  dbState.product = '';
+  dbState.chapter = '';
+  dbState.page    = 1;
+  const ps = document.getElementById('db-filter-product');
+  const cs = document.getElementById('db-filter-chapter');
+  if (ps) ps.value = '';
+  if (cs) cs.value = '';
   searchDB();
 }
 
+function setSearchMode(mode) {
+  dbState.mode = mode;
+  document.getElementById('mode-keyword').classList.toggle('active', mode === 'keyword');
+  document.getElementById('mode-exact').classList.toggle('active', mode === 'exact');
+  document.getElementById('db-search-input').placeholder =
+    mode === 'exact' ? '輸入完整文字進行精確比對...' : '輸入關鍵字搜尋...';
+  searchDB();
+}
+
+function setPerPage(n) {
+  dbState.perPage = n;
+  dbState.page = 1;
+  document.querySelectorAll('.per-page-btn').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.n) === n);
+  });
+  fetchAndRenderDB();
+}
+
+function applyFocusLang() {
+  dbState.focusLang = document.getElementById('db-focus-lang').value;
+  fetchAndRenderDB();
+}
+
 async function searchDB() {
-  const q    = document.getElementById('db-search-input').value;
-  const lang = document.getElementById('db-search-lang').value;
-  dbState.query = q;
-  dbState.lang  = lang;
-  dbState.page  = 1;
+  dbState.query       = document.getElementById('db-search-input').value;
+  dbState.product     = (document.getElementById('db-filter-product')?.value) || '';
+  dbState.chapter     = (document.getElementById('db-filter-chapter')?.value) || '';
+  dbState.stripPrefix = document.getElementById('strip-prefix-toggle')?.checked ?? true;
+  dbState.page        = 1;
   await fetchAndRenderDB();
 }
 
 async function fetchAndRenderDB() {
   const params = new URLSearchParams({
-    q:        dbState.query,
-    lang:     dbState.lang,
-    page:     dbState.page,
-    per_page: dbState.perPage,
+    q:            dbState.query,
+    lang:         dbState.lang,
+    product:      dbState.product,
+    chapter:      dbState.chapter,
+    page:         dbState.page,
+    per_page:     dbState.perPage,
+    exact:        dbState.mode === 'exact' ? '1' : '0',
+    strip_prefix: dbState.stripPrefix ? '1' : '0',
   });
   try {
     const res  = await fetch('/api/translations?' + params);
@@ -704,56 +743,210 @@ async function fetchAndRenderDB() {
     dbState.total = data.total;
     renderDBTable(data.items);
     renderPagination(data.total, data.page, data.page_size);
+    // 更新計數顯示
+    const countEl = document.getElementById('db-result-count');
+    if (countEl) {
+      if (dbState.query || dbState.product || dbState.chapter) {
+        countEl.textContent = `找到 ${data.total.toLocaleString()} 筆符合條目`;
+        countEl.style.display = '';
+      } else {
+        countEl.textContent = `共 ${data.total.toLocaleString()} 筆`;
+        countEl.style.display = '';
+      }
+    }
   } catch (e) {
     document.getElementById('db-tbody').innerHTML =
       `<tr><td colspan="99" class="empty-cell">載入失敗：${e.message}</td></tr>`;
   }
 }
 
+// 關鍵字高亮輔助函式
+function highlightText(text, query) {
+  if (!query || !text) return esc(text || '');
+  const escaped = esc(text);
+  const escapedQ = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return escaped.replace(new RegExp(escapedQ, 'gi'), m => `<mark class="kw-highlight">${m}</mark>`);
+}
+
+// 文字差異高亮（精確搜尋模式）
+function diffHighlight(dbText, query) {
+  if (!dbText || !query) return esc(dbText || '');
+  const a = dbText.toLowerCase();
+  const b = query.toLowerCase();
+  if (a === b) return `<span class="exact-match">${esc(dbText)}</span>`;
+  // 找出差異字元，用紅色標示
+  let result = '';
+  const maxLen = Math.max(dbText.length, query.length);
+  for (let i = 0; i < dbText.length; i++) {
+    if (i < query.length && dbText[i].toLowerCase() === query[i].toLowerCase()) {
+      result += esc(dbText[i]);
+    } else {
+      result += `<span class="diff-char">${esc(dbText[i])}</span>`;
+    }
+  }
+  return result;
+}
+
 function renderDBTable(items) {
-  // 動態建立表頭（顯示有資料的語言欄位）
   const thead = document.getElementById('db-thead');
   const tbody = document.getElementById('db-tbody');
+  const focus = dbState.focusLang;
 
-  // 固定顯示欄位：id, product, chapter, ENG, 其他語言（有資料者）
-  const visibleLangs = ['ENG', ...LANG_CODES.filter(c => c !== 'ENG')];
+  // 對每個 item 計算哪些語言有資料
+  const langHasData = {};
+  LANG_CODES.forEach(c => { langHasData[c] = false; });
+  items.forEach(row => {
+    LANG_CODES.forEach(c => {
+      if (row[c] && row[c].trim()) langHasData[c] = true;
+    });
+  });
 
-  // Build header once
+  // 排序： ENG 固定首位，聆焦語言絺在 ENG 旁，有資料語言在前，無資料在後
+  const withData    = LANG_CODES.filter(c => c !== 'ENG' && c !== focus && langHasData[c]);
+  const withoutData = LANG_CODES.filter(c => c !== 'ENG' && c !== focus && !langHasData[c]);
+  let colOrder = ['ENG'];
+  if (focus && focus !== 'ENG') colOrder.push(focus);
+  colOrder = colOrder.concat(withData).concat(withoutData);
+
+  // 表頭
   thead.innerHTML = `
     <tr>
       <th style="width:50px">ID</th>
-      <th style="width:100px">產品</th>
-      <th style="width:100px">章節</th>
-      ${visibleLangs.map(c => `<th style="min-width:120px">${c}</th>`).join('')}
-      <th style="width:90px">操作</th>
+      <th style="width:90px">產品</th>
+      <th style="width:80px">章節</th>
+      ${colOrder.map(c => {
+        const missing = !langHasData[c] && c !== 'ENG';
+        const isFocus = c === focus && c !== 'ENG';
+        const label   = missing ? `⚠️ ${c}` : c;
+        return `<th class="${missing ? 'col-missing' : ''} ${isFocus ? 'col-focus' : ''}" style="min-width:120px" title="${LANG_NAMES[c] || c}">${label}</th>`;
+      }).join('')}
+      <th style="width:60px">操作</th>
     </tr>
   `;
 
   tbody.innerHTML = '';
-
   if (!items.length) {
     tbody.innerHTML = `<tr><td colspan="99" class="empty-cell">找不到資料</td></tr>`;
     return;
   }
 
+  const q     = dbState.query;
+  const mode  = dbState.mode;
+
   items.forEach(row => {
     const tr = document.createElement('tr');
+    tr.dataset.id = row.id;
+
+    const cells = colOrder.map(c => {
+      const val     = row[c] || '';
+      const missing = !langHasData[c] && c !== 'ENG';
+      const isFocus = c === focus && c !== 'ENG';
+      let display;
+      if (q && val) {
+        display = mode === 'exact' ? diffHighlight(val, q) : highlightText(val, q);
+      } else {
+        display = esc(val);
+      }
+      return `<td class="db-cell ${missing ? 'cell-missing' : ''} ${isFocus ? 'cell-focus' : ''}"
+                  data-col="${c}" data-id="${row.id}"
+                  title="${esc(val)}"
+                  ondblclick="startInlineEdit(this, ${row.id}, '${c}')">${display || '<span class="cell-empty">—</span>'}</td>`;
+    });
+
     tr.innerHTML = `
       <td style="color:var(--text-muted);font-size:11px">${row.id}</td>
       <td>${esc(row.product || '')}</td>
       <td>${esc(row.chapter || '')}</td>
-      ${visibleLangs.map(c => `
-        <td title="${esc(row[c] || '')}">
-          ${esc(row[c] || '')}
-        </td>
-      `).join('')}
-      <td>
-        <button class="action-btn" onclick="openEditModal(${row.id})" title="編輯">✏️</button>
-        <button class="action-btn del" onclick="deleteEntry(${row.id})" title="刪除">🗑</button>
-      </td>
+      ${cells.join('')}
+      <td><button class="action-btn del" onclick="deleteEntry(${row.id})" title="刪除">🗑</button></td>
     `;
     tbody.appendChild(tr);
   });
+}
+
+// ── Inline Edit ──
+function startInlineEdit(td, id, col) {
+  if (td.querySelector('input,textarea')) return; // 已在編輯
+  const original = td.dataset.originalVal !== undefined ? td.dataset.originalVal : (td.title || '');
+  td.dataset.originalVal = original;
+
+  const input = document.createElement('textarea');
+  input.className = 'inline-edit-input';
+  input.value = original;
+  input.rows = Math.max(2, Math.ceil(original.length / 30));
+  td.innerHTML = '';
+  td.appendChild(input);
+  input.focus();
+  input.select();
+
+  input.addEventListener('keydown', async e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      await saveInlineEdit(td, id, col, input.value, original);
+    } else if (e.key === 'Escape') {
+      cancelInlineEdit(td, original);
+    }
+  });
+  input.addEventListener('blur', () => {
+    // 延遲，避免與 keydown Enter 衝突
+    setTimeout(() => { if (td.querySelector('textarea')) cancelInlineEdit(td, original); }, 150);
+  });
+}
+
+function cancelInlineEdit(td, original) {
+  td.innerHTML = original ? esc(original) : '<span class="cell-empty">—</span>';
+}
+
+async function saveInlineEdit(td, id, col, newVal, oldVal) {
+  if (newVal === oldVal) { cancelInlineEdit(td, oldVal); return; }
+  try {
+    const res = await fetch(`/api/translations/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ [col]: newVal })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      td.innerHTML = newVal ? esc(newVal) : '<span class="cell-empty">—</span>';
+      td.title = newVal;
+      td.dataset.originalVal = newVal;
+      if (newVal) td.classList.remove('cell-missing');
+      showUndoToast(id, col, newVal, oldVal);
+    } else {
+      alert('儲存失敗：' + (data.error || '未知錯誤'));
+      cancelInlineEdit(td, oldVal);
+    }
+  } catch (e) {
+    alert('網路錯誤：' + e.message);
+    cancelInlineEdit(td, oldVal);
+  }
+}
+
+// ── Undo Toast ──
+let undoTimer = null;
+function showUndoToast(id, col, newVal, oldVal) {
+  clearTimeout(undoTimer);
+  let toast = document.getElementById('undo-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'undo-toast';
+    document.body.appendChild(toast);
+  }
+  toast.innerHTML = `✅ 已更新「${col}」的翻譯 <button onclick="undoEdit(${id},'${col}',${JSON.stringify(oldVal)},'${newVal}')">&#8617; 撤銷</button>`;
+  toast.classList.add('show');
+  undoTimer = setTimeout(() => toast.classList.remove('show'), 5000);
+}
+
+async function undoEdit(id, col, oldVal, newVal) {
+  const toast = document.getElementById('undo-toast');
+  if (toast) toast.classList.remove('show');
+  const res = await fetch(`/api/translations/${id}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ [col]: oldVal })
+  });
+  const data = await res.json();
+  if (data.ok) { fetchAndRenderDB(); }
 }
 
 function renderPagination(total, page, perPage) {
@@ -787,6 +980,43 @@ function addPageBtn(container, p, current) {
   btn.textContent = p;
   btn.onclick = () => { dbState.page = p; fetchAndRenderDB(); };
   container.appendChild(btn);
+}
+
+// 填充聆焦語言選單
+async function populateFocusLangSelect() {
+  const sel = document.getElementById('db-focus-lang');
+  if (!sel) return;
+  LANG_CODES.forEach(c => {
+    if (c === 'ENG') return;
+    const opt = document.createElement('option');
+    opt.value = c;
+    opt.textContent = `${c} — ${LANG_NAMES[c] || c}`;
+    sel.appendChild(opt);
+  });
+}
+
+// 載入產品/章節選項
+async function loadFilterOptions() {
+  try {
+    const res  = await fetch('/api/translations/filter-options');
+    const data = await res.json();
+    const ps = document.getElementById('db-filter-product');
+    const cs = document.getElementById('db-filter-chapter');
+    if (ps) {
+      data.products.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = opt.textContent = p;
+        ps.appendChild(opt);
+      });
+    }
+    if (cs) {
+      data.chapters.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = opt.textContent = c;
+        cs.appendChild(opt);
+      });
+    }
+  } catch (e) { /* silent */ }
 }
 
 async function loadDBStats() {

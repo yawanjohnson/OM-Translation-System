@@ -197,12 +197,18 @@ class DBManager:
             action         TEXT,
             old_val        TEXT,
             new_val        TEXT,
+            changed_by     TEXT DEFAULT 'admin',
             created_at     TEXT DEFAULT (datetime('now','localtime'))
         );
         CREATE INDEX IF NOT EXISTS idx_history_tid ON translation_history (translation_id);
         """
         with self._get_conn() as conn:
             conn.executescript(create_sql)
+            # 升級現有資料庫：加入 changed_by 欄位（若不存在）
+            try:
+                conn.execute("ALTER TABLE translation_history ADD COLUMN changed_by TEXT DEFAULT 'admin'")
+            except Exception:
+                pass  # 欄位已存在，忽略
 
     def _get_row_by_id(self, conn, tid) -> dict | None:
         row = conn.execute('SELECT * FROM translations WHERE id = ?', (tid,)).fetchone()
@@ -214,15 +220,15 @@ class DBManager:
                 return True
         return False
 
-    def _log_history(self, conn, translation_id, action, old_val, new_val):
+    def _log_history(self, conn, translation_id, action, old_val, new_val, changed_by: str = 'admin'):
         import json
         sql = """
-        INSERT INTO translation_history (translation_id, action, old_val, new_val)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO translation_history (translation_id, action, old_val, new_val, changed_by)
+        VALUES (?, ?, ?, ?, ?)
         """
         old_str = json.dumps(old_val, ensure_ascii=False) if old_val else None
         new_str = json.dumps(new_val, ensure_ascii=False) if new_val else None
-        conn.execute(sql, (translation_id, action, old_str, new_str))
+        conn.execute(sql, (translation_id, action, old_str, new_str, changed_by))
 
     def export_to_git_json(self):
         import json
@@ -420,25 +426,77 @@ class DBManager:
     # 搜尋
     # ------------------------------------------------------------------ #
 
-    def search(self, query: str = '', lang: str = 'ENG',
+    def search(self, query: str = '', lang: str = '',
                product: str = '', chapter: str = '',
-               page: int = 1, page_size: int = 50) -> dict:
+               page: int = 1, page_size: int = 50,
+               exact: bool = False, strip_prefix: bool = True) -> dict:
         """
         全文搜尋：在指定語言欄位中搜尋 query 字串。
+        - exact=True：完全符合（忽略大小寫），並在 Python 層做前綴剝離比對
+        - strip_prefix=True：搜尋時忽略章節編號前綴（使用 split_prefix_suffix）
         回傳 {'total': N, 'page': P, 'items': [...]}
         """
         where_clauses = []
         params = []
+        search_query = query
 
+        # 精確搜尋：先取核心字（剝離前綴），再用 = 比對
+        if query and exact:
+            if strip_prefix:
+                _, core, _ = split_prefix_suffix(query)
+                search_query = core.strip() if core.strip() else query
+            # 精確搜尋在 Python 層過濾（SQLite LOWER 對非 ASCII 有限）
+            # 先拉全部，再在 Python 層篩選
+            if product:
+                where_clauses.append('product LIKE ?')
+                params.append(f'%{product}%')
+            if chapter:
+                where_clauses.append('chapter LIKE ?')
+                params.append(f'%{chapter}%')
+            where_sql = ('WHERE ' + ' AND '.join(where_clauses)) if where_clauses else ''
+            with self._get_conn() as conn:
+                rows = conn.execute(
+                    f'SELECT * FROM translations {where_sql} ORDER BY id DESC', params
+                ).fetchall()
+            q_norm = search_query.lower()
+            if strip_prefix:
+                _, q_core, _ = split_prefix_suffix(q_norm)
+                q_norm = q_core.strip() if q_core.strip() else q_norm
+
+            def _row_matches_exact(row):
+                targets = [lang] if (lang and lang in LANG_CODES) else LANG_CODES
+                for c in targets:
+                    val = row[c] or ''
+                    val_norm = val.lower()
+                    if strip_prefix:
+                        _, v_core, _ = split_prefix_suffix(val_norm)
+                        val_norm = v_core.strip() if v_core.strip() else val_norm
+                    if val_norm == q_norm:
+                        return True
+                return False
+
+            matched = [dict(r) for r in rows if _row_matches_exact(r)]
+            total = len(matched)
+            offset = (page - 1) * page_size
+            return {
+                'total': total,
+                'page': page,
+                'page_size': page_size,
+                'items': matched[offset:offset + page_size]
+            }
+
+        # 關鍵字搜尋（模糊）
         if query:
+            if strip_prefix:
+                _, core, _ = split_prefix_suffix(query)
+                search_query = core.strip() if core.strip() else query
             if lang and lang in LANG_CODES:
                 where_clauses.append(f'"{lang}" LIKE ?')
-                params.append(f'%{query}%')
+                params.append(f'%{search_query}%')
             else:
-                # 搜尋所有語言
                 lang_conds = ' OR '.join(f'"{c}" LIKE ?' for c in LANG_CODES)
                 where_clauses.append(f'({lang_conds})')
-                params.extend([f'%{query}%'] * len(LANG_CODES))
+                params.extend([f'%{search_query}%'] * len(LANG_CODES))
 
         if product:
             where_clauses.append('product LIKE ?')
@@ -466,6 +524,21 @@ class DBManager:
             'page_size': page_size,
             'items': [dict(r) for r in rows]
         }
+
+    def get_filter_options(self) -> dict:
+        """回傳資料庫中所有不重複的 product 與 chapter 清單，供前端篩選下拉使用。"""
+        with self._get_conn() as conn:
+            products = [
+                r[0] for r in conn.execute(
+                    "SELECT DISTINCT product FROM translations WHERE product != '' ORDER BY product"
+                ).fetchall()
+            ]
+            chapters = [
+                r[0] for r in conn.execute(
+                    "SELECT DISTINCT chapter FROM translations WHERE chapter != '' ORDER BY chapter"
+                ).fetchall()
+            ]
+        return {'products': products, 'chapters': chapters}
 
     def get_all(self) -> list:
         with self._get_conn() as conn:
