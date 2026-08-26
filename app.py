@@ -1313,7 +1313,7 @@ def api_extract_import():
 if __name__ == '__main__':
     print('\n' + '='*50)
     print('  OM 多語言管理系統 啟動中...')
-    print('  請在瀏覽器開啟 http://127.0.0.1:5001')
+    print('  請在瀏覽器開啟 http://127.0.0.1:5002')
     print('='*50 + '\n')
-    app.run(debug=True, port=5001, host='127.0.0.1')
+    app.run(debug=True, port=5002, host='127.0.0.1')
 
