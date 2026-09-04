@@ -81,21 +81,51 @@
 
       <!-- 左側：上傳區 -->
       <div class="panel">
-        <h2 class="panel-title">① Upload IDML File</h2>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <h2 class="panel-title mb0">① Upload IDML Files</h2>
+          <span class="tag tag-blue" id="idml-batch-count-tag" style="display:none">0 個檔案</span>
+        </div>
         <div class="dropzone" id="dz-idml"
              ondragover="event.preventDefault();this.classList.add('drag-over')"
              ondragleave="this.classList.remove('drag-over')"
              ondrop="handleDrop(event,'idml')">
           <div class="dz-icon">📁</div>
-          <div class="dz-label">拖曳 IDML 到此，或點擊選擇</div>
-          <div class="dz-sub">.idml 格式</div>
-          <input type="file" id="input-idml" accept=".idml" style="display:none" onchange="uploadIdml(this)"/>
-          <button class="btn btn-outline btn-sm" onclick="document.getElementById('input-idml').click()">選擇檔案</button>
+          <div class="dz-label" id="dz-idml-label">拖曳單個或多個 IDML 到此，或點擊選擇</div>
+          <div class="dz-sub" id="dz-idml-sub">.idml 格式 · 支援多語言檔案批次匯入</div>
+          <input type="file" id="input-idml" accept=".idml" multiple style="display:none" onchange="uploadIdml(this)"/>
+          <button class="btn btn-outline btn-sm" onclick="document.getElementById('input-idml').click()">選擇檔案 (可多選)</button>
         </div>
+        
+        <!-- 單檔簡易資訊 (若只有 1 檔時備用) -->
         <div class="idml-info" id="idml-info" style="display:none">
           <div class="info-row"><span class="info-label">檔案</span><span id="idml-filename" class="info-val mono">—</span></div>
           <div class="info-row"><span class="info-label">Stories</span><span id="idml-stories" class="info-val">—</span></div>
           <div class="info-row"><span class="info-label">版本</span><span id="idml-version" class="info-val">—</span></div>
+        </div>
+
+        <!-- 多檔案列表容器 -->
+        <div class="idml-files-container mt" id="idml-files-container" style="display:none">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <span style="font-size:12px; font-weight:600; color:var(--text-secondary);">已加入的 IDML 檔案清單</span>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-outline btn-sm" onclick="document.getElementById('input-idml').click()" style="padding:2px 8px; font-size:11px;">+ 增加檔案</button>
+              <button class="btn btn-outline btn-sm" onclick="clearAllIdmlFiles()" style="padding:2px 8px; font-size:11px; color:var(--error-text);">清空全部</button>
+            </div>
+          </div>
+          <div class="table-wrap" style="max-height:220px; overflow-y:auto;">
+            <table class="data-table" id="idml-files-table">
+              <thead>
+                <tr>
+                  <th style="width:36px">#</th>
+                  <th>檔案名稱</th>
+                  <th style="width:115px">指派語言</th>
+                  <th style="width:80px">Stories</th>
+                  <th style="width:45px; text-align:center;">操作</th>
+                </tr>
+              </thead>
+              <tbody id="idml-files-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -120,10 +150,13 @@
 
     <!-- 指示預覽 -->
     <div class="panel mt" id="instr-preview-panel" style="display:none">
-      <div class="panel-header">
-        <h2 class="panel-title mb0">修改指示預覽</h2>
+      <div class="panel-header" style="flex-wrap:wrap; gap:10px;">
+        <div>
+          <h2 class="panel-title mb0">修改指示預覽</h2>
+          <div id="instr-lang-filters" class="lang-filter-pills mt-xs"></div>
+        </div>
         <button class="btn btn-primary" id="btn-run-patch" onclick="runPatch()">
-          🚀 執行修正
+          🚀 執行批次修正
         </button>
       </div>
       <div class="table-wrap">
@@ -149,14 +182,21 @@
         <div class="result-summary">
           <div class="result-stat success">
             <span class="rs-num" id="res-success-count">0</span>
-            <span class="rs-label">處修改成功</span>
+            <span class="rs-label">總修改成功處數</span>
           </div>
           <div class="result-stat error" id="res-error-block">
             <span class="rs-num" id="res-error-count">0</span>
-            <span class="rs-label">條未找到</span>
+            <span class="rs-label">總未找到條數</span>
+          </div>
+          <div class="result-stat" id="res-file-block" style="background:rgba(79,142,247,0.08); border:1px solid rgba(79,142,247,0.25); display:none;">
+            <span class="rs-num" id="res-file-count" style="color:var(--accent-1)">0</span>
+            <span class="rs-label">完成檔案數</span>
           </div>
         </div>
         <div class="result-downloads">
+          <button class="btn btn-success" id="dl-batch-zip-btn" onclick="downloadBatchZip()" style="display:none; font-weight:700; background:linear-gradient(135deg, #238636 0%, #2ea043 100%);">
+            📦 一鍵下載全部 (ZIP)
+          </button>
           <button class="btn btn-verify" id="btn-verify" onclick="runVerify()" style="display:none">
             🔍 驗證置換正確性
           </button>
@@ -173,8 +213,26 @@
             📋 產出 PM 確認頁
           </button>
         </div>
+      </div>
 
-
+      <!-- 批次成果各檔案清單 -->
+      <div id="batch-results-section" style="display:none; margin: 18px 0;">
+        <div class="section-divider">📁 各語言檔案處理結果</div>
+        <div class="table-wrap">
+          <table class="data-table" id="batch-results-table">
+            <thead>
+              <tr>
+                <th style="width:70px">語言</th>
+                <th>原始檔案名稱</th>
+                <th style="width:90px">成功修改</th>
+                <th style="width:90px">未找到</th>
+                <th style="width:80px">狀態</th>
+                <th style="width:200px">個別下載</th>
+              </tr>
+            </thead>
+            <tbody id="batch-results-tbody"></tbody>
+          </table>
+        </div>
       </div>
 
       <!-- 上傳手動 PDF 區 -->

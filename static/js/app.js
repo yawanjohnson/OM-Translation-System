@@ -15,12 +15,21 @@ const LANG_NAMES = {};
 // 全域狀態
 // ──────────────────────────────────────────────────────
 let patchState = {
+  files: [], // Array of { tmpId, filename, detectedLang, stories, version, info }
   tmpId: null,
   originalFilename: null,
   instructions: [],
+  filteredLang: 'ALL',
   runId: null,
   idmlFile: null,
   excelFile: null,
+  batchZipFile: null,
+  batchResults: [],
+  totalApplied: 0,
+  totalNotFound: 0,
+  lastChanges: [],
+  lastNotFound: [],
+  layout: null,
 };
 
 let applyState = {
@@ -159,61 +168,171 @@ function handleDrop(event, type) {
   document.querySelectorAll('.dropzone').forEach(d => d.classList.remove('drag-over'));
   const files = event.dataTransfer.files;
   if (!files.length) return;
-  const file = files[0];
 
   if (type === 'idml') {
-    uploadIdmlFromFile(file);
+    uploadIdmlFromFiles(Array.from(files));
   } else if (type === 'instr') {
-    uploadInstructionsFromFile(file);
+    uploadInstructionsFromFile(files[0]);
   } else if (type === 'excel-import') {
-    importExcelFromFile(file);
+    importExcelFromFile(files[0]);
   } else if (type === 'idml-import') {
-    importIdmlPreviewFromFile(file);
+    importIdmlPreviewFromFile(files[0]);
   } else if (type === 'apply') {
-    uploadApplyIdmlFromFile(file);
+    uploadApplyIdmlFromFile(files[0]);
   } else if (type === 'pm-reply') {
-    uploadPMReplyFromFile(file);
+    uploadPMReplyFromFile(files[0]);
   } else if (type === 'extract') {
     handleExtractUploadFromFiles(files);
   } else if (type === 'review-pdf') {
-    uploadReviewPDFFromFile(file);
+    uploadReviewPDFFromFile(files[0]);
   }
 }
 
 // ──────────────────────────────────────────────────────
-// TAB 1: IDML 修正
+// TAB 1: IDML 修正（支援多檔案批次模式）
 // ──────────────────────────────────────────────────────
-function uploadIdml(input) { if (input.files[0]) uploadIdmlFromFile(input.files[0]); }
+function uploadIdml(input) {
+  if (input.files && input.files.length > 0) {
+    uploadIdmlFromFiles(Array.from(input.files));
+    input.value = '';
+  }
+}
 
-async function uploadIdmlFromFile(file) {
-  showLoading('上傳 IDML 中...');
+async function uploadIdmlFromFiles(files) {
+  const idmlFiles = files.filter(f => f.name.toLowerCase().endsWith('.idml'));
+  if (!idmlFiles.length) {
+    showToast('請上傳 .idml 格式的檔案', 'error');
+    return;
+  }
+
+  showLoading(`正在上傳並分析 ${idmlFiles.length} 個 IDML 檔案...`);
   try {
     const fd = new FormData();
-    fd.append('file', file);
+    idmlFiles.forEach(f => fd.append('files', f));
+
     const res = await fetch('/api/patch/upload-idml', { method: 'POST', body: fd });
     const data = await res.json();
     hideLoading();
-    if (!data.ok) { showToast('❌ ' + data.error, 'error'); return; }
 
-    patchState.tmpId = data.tmp_id;
-    patchState.originalFilename = file.name;
+    if (!data.ok) {
+      showToast('❌ ' + data.error, 'error');
+      return;
+    }
 
-    const dz = document.getElementById('dz-idml');
-    dz.style.borderColor = 'var(--success-text)';
-    dz.querySelector('.dz-label').textContent = '✅ ' + file.name;
-    dz.querySelector('.dz-sub').textContent = '';
+    // 將新上傳的檔案加入到 patchState.files（避免完全相同的檔名重複覆蓋）
+    data.files.forEach(f => {
+      if (!patchState.files.some(existing => existing.tmpId === f.tmp_id)) {
+        patchState.files.push({
+          tmpId: f.tmp_id,
+          filename: f.filename,
+          detectedLang: f.detected_lang || 'ENG',
+          stories: f.story_count || 0,
+          version: f.dom_version || '',
+          info: f.info
+        });
+      }
+    });
 
-    const info = document.getElementById('idml-info');
-    info.style.display = 'block';
-    document.getElementById('idml-filename').textContent = file.name;
-    document.getElementById('idml-stories').textContent = (data.info?.story_count || '?') + ' 個 Story';
-    document.getElementById('idml-version').textContent = 'DOMVersion ' + (data.info?.dom_version || '?');
+    if (patchState.files.length > 0) {
+      patchState.tmpId = patchState.files[0].tmpId;
+      patchState.originalFilename = patchState.files[0].filename;
+    }
 
-    showToast('✅ IDML 上傳成功');
+    renderIdmlFilesList();
+    showToast(`✅ 成功匯入 ${data.files.length} 個 IDML 檔案`);
     checkPatchReady();
   } catch (e) {
     hideLoading();
     showToast('❌ 上傳失敗：' + e.message, 'error');
+  }
+}
+
+function renderIdmlFilesList() {
+  const container = document.getElementById('idml-files-container');
+  const countTag = document.getElementById('idml-batch-count-tag');
+  const dzLabel = document.getElementById('dz-idml-label');
+  const dzSub = document.getElementById('dz-idml-sub');
+  const tbody = document.getElementById('idml-files-tbody');
+
+  if (!patchState.files.length) {
+    if (container) container.style.display = 'none';
+    if (countTag) countTag.style.display = 'none';
+    if (dzLabel) dzLabel.textContent = '拖曳單個或多個 IDML 到此，或點擊選擇';
+    if (dzSub) dzSub.textContent = '.idml 格式 · 支援多語言檔案批次匯入';
+    const dz = document.getElementById('dz-idml');
+    if (dz) dz.style.borderColor = '';
+    return;
+  }
+
+  if (container) container.style.display = 'block';
+  if (countTag) {
+    countTag.style.display = 'inline-block';
+    countTag.textContent = `${patchState.files.length} 個檔案`;
+  }
+
+  const dz = document.getElementById('dz-idml');
+  if (dz) {
+    dz.style.borderColor = 'var(--success-text)';
+  }
+  if (dzLabel) {
+    dzLabel.textContent = `✅ 已加入 ${patchState.files.length} 個 IDML 檔案`;
+  }
+  if (dzSub) {
+    dzSub.textContent = '可繼續拖曳更多檔案加入清單';
+  }
+
+  if (tbody) {
+    tbody.innerHTML = '';
+    patchState.files.forEach((file, idx) => {
+      const tr = document.createElement('tr');
+      const langOptions = LANG_CODES.map(code => 
+        `<option value="${code}" ${code === file.detectedLang ? 'selected' : ''}>${code} (${LANG_NAMES[code] || code})</option>`
+      ).join('');
+
+      tr.innerHTML = `
+        <td>${idx + 1}</td>
+        <td><span class="mono" style="font-size:12px; font-weight:500; color:var(--text-primary); word-break:break-all;">${esc(file.filename)}</span></td>
+        <td>
+          <select class="file-select-lang" onchange="changeIdmlLang(${idx}, this.value)">
+            ${langOptions}
+          </select>
+        </td>
+        <td><span class="tag tag-muted">${file.stories || 0} Stories</span></td>
+        <td style="text-align:center;">
+          <button class="action-btn del" onclick="removeIdmlFile(${idx})" title="移除此檔案">🗑</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+}
+
+function removeIdmlFile(idx) {
+  patchState.files.splice(idx, 1);
+  if (patchState.files.length > 0) {
+    patchState.tmpId = patchState.files[0].tmpId;
+    patchState.originalFilename = patchState.files[0].filename;
+  } else {
+    patchState.tmpId = null;
+    patchState.originalFilename = null;
+  }
+  renderIdmlFilesList();
+  checkPatchReady();
+}
+
+function clearAllIdmlFiles() {
+  patchState.files = [];
+  patchState.tmpId = null;
+  patchState.originalFilename = null;
+  renderIdmlFilesList();
+  checkPatchReady();
+  showToast('已清空 IDML 檔案清單');
+}
+
+function changeIdmlLang(idx, newLang) {
+  if (patchState.files[idx]) {
+    patchState.files[idx].detectedLang = newLang;
+    showToast(`檔案已指派語言：${newLang}`);
   }
 }
 
@@ -230,16 +349,22 @@ async function uploadInstructionsFromFile(file) {
     if (!data.ok) { showToast('❌ ' + data.error, 'error'); return; }
 
     patchState.instructions = data.instructions;
+    patchState.filteredLang = 'ALL';
 
     const dz = document.getElementById('dz-instr');
-    dz.style.borderColor = 'var(--success-text)';
-    dz.querySelector('.dz-label').textContent = '✅ ' + file.name;
-    dz.querySelector('.dz-sub').textContent = `共 ${data.count} 條修改指示`;
+    if (dz) {
+      dz.style.borderColor = 'var(--success-text)';
+      dz.querySelector('.dz-label').textContent = '✅ ' + file.name;
+      dz.querySelector('.dz-sub').textContent = `共 ${data.count} 條修改指示`;
+    }
 
-    document.getElementById('instr-summary').style.display = 'block';
-    document.getElementById('instr-count-tag').textContent = `${data.count} 條指示`;
+    const summary = document.getElementById('instr-summary');
+    if (summary) summary.style.display = 'block';
+    const tag = document.getElementById('instr-count-tag');
+    if (tag) tag.textContent = `${data.count} 條指示`;
 
-    renderInstrTable(data.instructions);
+    renderInstrFilters();
+    renderInstrTable();
     showToast(`✅ 已解析 ${data.count} 條修改指示`);
     checkPatchReady();
   } catch (e) {
@@ -248,56 +373,103 @@ async function uploadInstructionsFromFile(file) {
   }
 }
 
-function checkPatchReady() {
-  const ready = patchState.tmpId && patchState.instructions.length > 0;
-  const btn = document.getElementById('btn-run-patch');
-  if (btn) btn.disabled = !ready;
+function renderInstrFilters() {
+  const container = document.getElementById('instr-lang-filters');
+  if (!container) return;
+  if (!patchState.instructions.length) {
+    container.innerHTML = '';
+    return;
+  }
+
+  // 計算各語言指示數量
+  const counts = { ALL: patchState.instructions.length };
+  patchState.instructions.forEach(instr => {
+    const l = (instr.lang_code || '通用').toUpperCase();
+    counts[l] = (counts[l] || 0) + 1;
+  });
+
+  const langs = Object.keys(counts).filter(k => k !== 'ALL');
+  langs.sort();
+
+  let html = `<button class="lang-pill ${patchState.filteredLang === 'ALL' ? 'active' : ''}" onclick="setInstrLangFilter('ALL')">全部 (${counts.ALL})</button>`;
+  langs.forEach(lang => {
+    html += `<button class="lang-pill ${patchState.filteredLang === lang ? 'active' : ''}" onclick="setInstrLangFilter('${esc(lang)}')">${esc(lang)} (${counts[lang]})</button>`;
+  });
+  container.innerHTML = html;
 }
 
-function renderInstrTable(instructions) {
+function setInstrLangFilter(lang) {
+  patchState.filteredLang = lang;
+  renderInstrFilters();
+  renderInstrTable();
+}
+
+function renderInstrTable() {
   const panel = document.getElementById('instr-preview-panel');
-  panel.style.display = 'block';
+  if (panel) panel.style.display = 'block';
   const tbody = document.getElementById('instr-tbody');
+  if (!tbody) return;
   tbody.innerHTML = '';
 
-  instructions.forEach((instr, i) => {
+  const displayList = patchState.filteredLang === 'ALL'
+    ? patchState.instructions
+    : patchState.instructions.filter(instr => (instr.lang_code || '').toUpperCase() === patchState.filteredLang);
+
+  displayList.forEach((instr, i) => {
+    const originalIndex = patchState.instructions.indexOf(instr);
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${i + 1}</td>
-      <td><span class="tag tag-blue">${esc(instr.lang_code)}</span></td>
+      <td><span class="tag tag-blue">${esc(instr.lang_code || '通用')}</span></td>
       <td><span class="cell-truncate mono text-del">${esc(instr.find)}</span></td>
       <td><span class="cell-truncate mono text-green">${esc(instr.replace)}</span></td>
       <td>${esc(instr.note)}</td>
       <td>
-        <button class="action-btn del" onclick="removeInstruction(${i})" title="移除此條">🗑</button>
+        <button class="action-btn del" onclick="removeInstruction(${originalIndex})" title="移除此條">🗑</button>
       </td>
     `;
     tbody.appendChild(tr);
   });
 
-  const btn = document.getElementById('btn-run-patch');
-  if (btn) btn.disabled = !(patchState.tmpId && instructions.length > 0);
+  checkPatchReady();
 }
 
 function removeInstruction(idx) {
   patchState.instructions.splice(idx, 1);
-  renderInstrTable(patchState.instructions);
-  document.getElementById('instr-count-tag').textContent = `${patchState.instructions.length} 條指示`;
+  renderInstrFilters();
+  renderInstrTable();
+  const tag = document.getElementById('instr-count-tag');
+  if (tag) tag.textContent = `${patchState.instructions.length} 條指示`;
+}
+
+function checkPatchReady() {
+  const ready = patchState.files.length > 0 && patchState.instructions.length > 0;
+  const btn = document.getElementById('btn-run-patch');
+  if (btn) {
+    btn.disabled = !ready;
+    btn.textContent = patchState.files.length > 1
+      ? `🚀 執行批次修正 (${patchState.files.length} 個檔案)`
+      : `🚀 執行修正`;
+  }
 }
 
 async function runPatch() {
-  if (!patchState.tmpId) { showToast('請先上傳 IDML 檔案', 'error'); return; }
+  if (!patchState.files.length) { showToast('請先上傳 IDML 檔案', 'error'); return; }
   if (!patchState.instructions.length) { showToast('請先上傳修改指示', 'error'); return; }
 
-  showLoading('執行 IDML 修正中...\n正在搜尋並替換文字，請稍候');
+  const fileCount = patchState.files.length;
+  showLoading(`正在執行多語言 IDML 修正...\n正在批次處理 ${fileCount} 個檔案，請稍候`);
   try {
-    const res = await fetch('/api/patch/run', {
+    const res = await fetch('/api/patch/run-batch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        tmp_id: patchState.tmpId,
+        files: patchState.files.map(f => ({
+          tmp_id: f.tmpId,
+          original_filename: f.filename,
+          lang_code: f.detectedLang
+        })),
         instructions: patchState.instructions,
-        original_filename: patchState.originalFilename,
       }),
     });
     const data = await res.json();
@@ -305,32 +477,68 @@ async function runPatch() {
 
     if (!data.ok) { showToast('❌ ' + data.error, 'error'); return; }
 
-    patchState.runId = data.run_id;
-    patchState.idmlFile = data.idml_file;
-    patchState.excelFile = data.excel_file;
+    patchState.batchResults = data.results || [];
+    patchState.batchZipFile = data.zip_file;
+    patchState.totalApplied = data.total_applied || 0;
+    patchState.totalNotFound = data.total_not_found || 0;
 
-    renderPatchResult(data);
-    showToast(`✅ 修正完成！${data.changes.length} 處成功 / ${data.not_found.length} 條未找到`);
+    // 若有第一筆成功結果，設定為單檔相容
+    const firstOk = patchState.batchResults.find(r => r.ok);
+    if (firstOk) {
+      patchState.runId = firstOk.run_id;
+      patchState.idmlFile = firstOk.idml_file;
+      patchState.excelFile = firstOk.excel_file;
+      patchState.lastChanges = firstOk.changes || [];
+      patchState.lastNotFound = firstOk.not_found_list || [];
+    }
+
+    renderBatchPatchResult(data);
+    showToast(`✅ 批次修正完成！共處理 ${data.results.length} 個檔案，總修改 ${data.total_applied} 處`);
   } catch (e) {
     hideLoading();
     showToast('❌ ' + e.message, 'error');
   }
 }
 
-function renderPatchResult(data) {
+function renderBatchPatchResult(data) {
   const panel = document.getElementById('patch-result-panel');
+  if (!panel) return;
   panel.style.display = 'block';
   panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-  // 儲存供 PM 確認使用
-  patchState.lastChanges   = data.changes;
-  patchState.lastNotFound  = data.not_found;
-  patchState.layout        = data.layout;
+  // 統計數字
+  const successCountEl = document.getElementById('res-success-count');
+  const errorCountEl = document.getElementById('res-error-count');
+  const fileCountEl = document.getElementById('res-file-count');
+  const fileBlockEl = document.getElementById('res-file-block');
 
-  document.getElementById('res-success-count').textContent = data.changes.length;
-  document.getElementById('res-error-count').textContent   = data.not_found.length;
+  if (successCountEl) successCountEl.textContent = data.total_applied || 0;
+  if (errorCountEl) errorCountEl.textContent = data.total_not_found || 0;
+  if (fileCountEl) fileCountEl.textContent = `${data.results.filter(r => r.ok).length} / ${data.results.length}`;
+  if (fileBlockEl) fileBlockEl.style.display = 'flex';
 
-  // 顯示 PM 確認頁、驗證按鈕、PDF 匠出按鈕
+  // 下載全部 ZIP 按鈕
+  const dlZipBtn = document.getElementById('dl-batch-zip-btn');
+  if (dlZipBtn) {
+    if (data.zip_file) {
+      dlZipBtn.style.display = 'inline-flex';
+    } else {
+      dlZipBtn.style.display = 'none';
+    }
+  }
+
+  // 單檔下載按鈕
+  const dlIdmlBtn = document.getElementById('dl-idml-btn');
+  const dlExcelBtn = document.getElementById('dl-excel-btn');
+  if (data.results.length === 1 && data.results[0].ok) {
+    if (dlIdmlBtn) dlIdmlBtn.style.display = 'inline-flex';
+    if (dlExcelBtn) dlExcelBtn.style.display = 'inline-flex';
+  } else {
+    if (dlIdmlBtn) dlIdmlBtn.style.display = 'none';
+    if (dlExcelBtn) dlExcelBtn.style.display = 'none';
+  }
+
+  // 顯示 PM 確認頁、驗證按鈕、PDF 產出按鈕
   const pmBtn = document.getElementById('dl-pm-html-btn');
   if (pmBtn) pmBtn.style.display = 'inline-flex';
   const pdfBtn = document.getElementById('export-pdf-btn');
@@ -338,47 +546,121 @@ function renderPatchResult(data) {
   const verifyBtn = document.getElementById('btn-verify');
   if (verifyBtn) verifyBtn.style.display = 'inline-flex';
 
-  // 未找到
+  // 批次結果列表
+  const batchSection = document.getElementById('batch-results-section');
+  const batchTbody = document.getElementById('batch-results-tbody');
+  if (batchSection && batchTbody) {
+    batchSection.style.display = 'block';
+    batchTbody.innerHTML = '';
+
+    data.results.forEach((r, idx) => {
+      const tr = document.createElement('tr');
+      if (r.ok) {
+        tr.innerHTML = `
+          <td><span class="tag tag-blue">${esc(r.lang_code)}</span></td>
+          <td><span class="mono" style="font-size:12px; font-weight:500;">${esc(r.original_filename)}</span></td>
+          <td><span class="text-green" style="font-weight:600;">${r.applied} 處</span></td>
+          <td><span style="${r.not_found > 0 ? 'color:var(--error-text);font-weight:600;' : 'color:var(--text-muted);'}">${r.not_found} 條</span></td>
+          <td><span class="tag tag-green">✅ 成功</span></td>
+          <td>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-outline btn-sm" onclick="downloadSingleFile('${esc(r.idml_file)}')" style="padding:2px 8px; font-size:11px;">⬇ IDML</button>
+              <button class="btn btn-outline btn-sm" onclick="downloadSingleFile('${esc(r.excel_file)}')" style="padding:2px 8px; font-size:11px;">⬇ Excel</button>
+            </div>
+          </td>
+        `;
+      } else {
+        tr.innerHTML = `
+          <td><span class="tag tag-orange">${esc(r.lang_code)}</span></td>
+          <td><span class="mono" style="font-size:12px; color:var(--error-text);">${esc(r.original_filename)}</span></td>
+          <td>-</td>
+          <td>-</td>
+          <td><span class="tag tag-red">❌ 失敗</span></td>
+          <td><span style="font-size:11px; color:var(--error-text);">${esc(r.error || '錯誤')}</span></td>
+        `;
+      }
+      batchTbody.appendChild(tr);
+    });
+  }
+
+  // 彙整所有未找到項目與成功項目
+  const allNotFound = [];
+  const allChanges = [];
+  data.results.forEach(r => {
+    if (r.not_found_list) {
+      r.not_found_list.forEach(nf => {
+        allNotFound.push({ ...nf, lang_code: nf.lang_code || r.lang_code, file: r.original_filename });
+      });
+    }
+    if (r.changes) {
+      r.changes.forEach(c => {
+        allChanges.push({ ...c, lang_code: c.lang_code || r.lang_code, file: r.original_filename });
+      });
+    }
+  });
+
+  // 未找到區塊
   const notFoundSec = document.getElementById('not-found-section');
-  if (data.not_found.length) {
-    notFoundSec.style.display = 'block';
-    const tbody = document.getElementById('not-found-tbody');
-    tbody.innerHTML = '';
-    data.not_found.forEach((nf, i) => {
+  if (allNotFound.length) {
+    if (notFoundSec) {
+      notFoundSec.style.display = 'block';
+      const tbody = document.getElementById('not-found-tbody');
+      if (tbody) {
+        tbody.innerHTML = '';
+        allNotFound.forEach((nf, i) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${i+1}</td>
+            <td><span class="tag tag-orange">${esc(nf.lang_code)}</span></td>
+            <td><span class="mono" style="color:var(--error-text)">${esc(nf.find)}</span></td>
+            <td class="mono">${esc(nf.replace)}</td>
+            <td>${esc(nf.note || '')} ${nf.file ? `<span class="tag tag-muted" style="margin-left:4px;">${esc(nf.file)}</span>` : ''}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+    }
+  } else {
+    if (notFoundSec) notFoundSec.style.display = 'none';
+  }
+
+  // 成功清單區塊
+  const tbody2 = document.getElementById('success-tbody');
+  if (tbody2) {
+    tbody2.innerHTML = '';
+    allChanges.forEach((c, i) => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${i+1}</td>
-        <td><span class="tag tag-orange">${esc(nf.lang_code)}</span></td>
-        <td><span class="mono" style="color:var(--error-text)">${esc(nf.find)}</span></td>
-        <td class="mono">${esc(nf.replace)}</td>
-        <td>${esc(nf.note)}</td>
+        <td><span class="tag tag-green">${esc(c.lang_code)}</span></td>
+        <td><span class="mono text-del">${esc(c.find)}</span></td>
+        <td><span class="mono text-green">${esc(c.replace)}</span></td>
+        <td>${c.page ? `<span class="tag tag-blue">Page ${esc(c.page)}</span>` : '<span class="tag tag-muted">-</span>'}</td>
+        <td>${esc(c.note || '')} ${c.file ? `<span class="tag tag-muted" style="margin-left:4px;">${esc(c.file)}</span>` : ''}</td>
       `;
-      tbody.appendChild(tr);
+      tbody2.appendChild(tr);
     });
-  } else {
-    notFoundSec.style.display = 'none';
   }
-
-  // 成功清單
-  const tbody2 = document.getElementById('success-tbody');
-  tbody2.innerHTML = '';
-  data.changes.forEach((c, i) => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${i+1}</td>
-      <td><span class="tag tag-green">${esc(c.lang_code)}</span></td>
-      <td><span class="mono text-del">${esc(c.find)}</span></td>
-      <td><span class="mono text-green">${esc(c.replace)}</span></td>
-      <td>${c.page ? `<span class="tag tag-blue">Page ${esc(c.page)}</span>` : '<span class="tag tag-muted">-</span>'}</td>
-      <td>${esc(c.note || '')}</td>
-    `;
-    tbody2.appendChild(tr);
-  });
-
 
   // 清除舊驗證結果
   const verifySec = document.getElementById('verify-section');
   if (verifySec) verifySec.style.display = 'none';
+}
+
+function downloadBatchZip() {
+  if (!patchState.batchZipFile) {
+    showToast('尚未產生 ZIP 檔案', 'error');
+    return;
+  }
+  downloadSingleFile(patchState.batchZipFile);
+}
+
+function downloadSingleFile(filename) {
+  if (!filename) {
+    showToast('檔案名稱無效', 'error');
+    return;
+  }
+  window.location.href = `/api/patch/download/${encodeURIComponent(filename)}`;
 }
 
 // ──────────────────────────────────────────────────────

@@ -2,8 +2,10 @@
 app.py - OM 多語言管理系統 Flask 後端
 """
 import os
+import re
 import uuid
 import json
+import zipfile
 from flask import Flask, render_template, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 
@@ -511,21 +513,85 @@ def api_export_template():
 # IDML 修正（核心功能）
 # ──────────────────────────────────────────
 
+# 語言別名映射表，用於從檔名自動識別語言
+LANG_ALIASES = {
+    'ENG': 'ENG', 'EN': 'ENG', 'US': 'ENG', 'UK': 'ENG', 'ENGLISH': 'ENG',
+    'GER': 'GER', 'DE': 'GER', 'DEU': 'GER', 'GERMAN': 'GER',
+    'DUT': 'DUT', 'NL': 'DUT', 'NLD': 'DUT', 'DUTCH': 'DUT',
+    'DAN': 'DAN', 'DA': 'DAN', 'DNK': 'DAN', 'DANISH': 'DAN',
+    'FRE': 'FRE', 'FR': 'FRE', 'FRA': 'FRE', 'FRENCH': 'FRE',
+    'SPA': 'SPA', 'ES': 'SPA', 'ESP': 'SPA', 'SPANISH': 'SPA',
+    'ITA': 'ITA', 'IT': 'ITA', 'ITALIAN': 'ITA',
+    'GRK': 'GRK', 'EL': 'GRK', 'GR': 'GRK', 'GRE': 'GRK', 'GREEK': 'GRK',
+    'POL': 'POL', 'PL': 'POL', 'POLISH': 'POL',
+    'PRB': 'PRB', 'PT': 'PRB', 'PT-BR': 'PRB', 'PT_BR': 'PRB', 'BR': 'PRB', 'POR': 'PRB', 'PORTUGUESE': 'PRB',
+    'RUS': 'RUS', 'RU': 'RUS', 'RUSSIAN': 'RUS',
+    'CHT': 'CHT', 'ZH-TW': 'CHT', 'ZH_TW': 'CHT', 'ZH-HK': 'CHT', 'ZH_HK': 'CHT', 'TC': 'CHT', 'TW': 'CHT', 'HK': 'CHT', 'TRAD': 'CHT',
+    'CHS': 'CHS', 'ZH-CN': 'CHS', 'ZH_CN': 'CHS', 'SC': 'CHS', 'CN': 'CHS', 'SIMP': 'CHS',
+    'JPN': 'JPN', 'JA': 'JPN', 'JP': 'JPN', 'JAPANESE': 'JPN',
+    'KOR': 'KOR', 'KO': 'KOR', 'KR': 'KOR', 'KOREAN': 'KOR',
+    'VTM': 'VTM', 'VI': 'VTM', 'VN': 'VTM', 'VIE': 'VTM', 'VIETNAMESE': 'VTM',
+    'THI': 'THI', 'TH': 'THI', 'THA': 'THI', 'THAI': 'THI',
+    'ARB': 'ARB', 'AR': 'ARB', 'ARA': 'ARB', 'ARABIC': 'ARB',
+    'TRK': 'TRK', 'TR': 'TRK', 'TUR': 'TRK', 'TURKISH': 'TRK',
+}
+
+def detect_lang_from_filename(filename: str) -> str:
+    """從檔名中辨識語言代碼，回傳 LANG_CODES 中的標準代碼，若無法辨識則預設回傳 'ENG'。"""
+    stem = os.path.splitext(filename)[0]
+    tokens = re.split(r'[_.\s\-()\[\]]+', stem)
+    for token in reversed(tokens):
+        t_upper = token.upper()
+        if t_upper in LANG_ALIASES:
+            return LANG_ALIASES[t_upper]
+    return 'ENG'
+
+
 @app.route('/api/patch/upload-idml', methods=['POST'])
 def api_patch_upload_idml():
-    """上傳待修正的 IDML，回傳暫存 ID。"""
-    if 'file' not in request.files:
-        return jsonify({'ok': False, 'error': '請上傳 IDML'}), 400
-    try:
-        path   = save_upload(request.files['file'], ALLOWED_IDML)
-        tmp_id = uuid.uuid4().hex
-        tmp_path = os.path.join(UPLOAD_DIR, f'patch_{tmp_id}.idml')
-        os.rename(path, tmp_path)
-        info = get_idml_info(tmp_path)
-        return jsonify({'ok': True, 'tmp_id': tmp_id, 'info': info,
-                        'filename': request.files['file'].filename})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    """上傳待修正的 IDML（支援單檔或多檔批次上傳）。"""
+    uploaded_files = request.files.getlist('files')
+    if not uploaded_files and 'file' in request.files:
+        uploaded_files = request.files.getlist('file')
+    
+    if not uploaded_files:
+        return jsonify({'ok': False, 'error': '請上傳 IDML 檔案'}), 400
+
+    results = []
+    for f in uploaded_files:
+        if not f or not f.filename:
+            continue
+        try:
+            path   = save_upload(f, ALLOWED_IDML)
+            tmp_id = uuid.uuid4().hex
+            tmp_path = os.path.join(UPLOAD_DIR, f'patch_{tmp_id}.idml')
+            os.rename(path, tmp_path)
+            info = get_idml_info(tmp_path)
+            detected_lang = detect_lang_from_filename(f.filename)
+            results.append({
+                'tmp_id':        tmp_id,
+                'filename':      f.filename,
+                'detected_lang': detected_lang,
+                'story_count':   info.get('story_count', 0),
+                'dom_version':   info.get('dom_version', ''),
+                'info':          info,
+            })
+        except Exception as e:
+            return jsonify({'ok': False, 'error': f'處理檔案 {f.filename} 失敗：{str(e)}'}), 500
+
+    if not results:
+        return jsonify({'ok': False, 'error': '沒有有效的 IDML 檔案'}), 400
+
+    first = results[0]
+    return jsonify({
+        'ok':            True,
+        'files':         results,
+        'tmp_id':        first['tmp_id'],
+        'filename':      first['filename'],
+        'detected_lang': first['detected_lang'],
+        'info':          first['info'],
+        'count':         len(results),
+    })
 
 
 @app.route('/api/patch/upload-instructions', methods=['POST'])
@@ -547,7 +613,7 @@ def api_patch_upload_instructions():
             repl = row.get('replace') or row.get('REPLACE') or row.get('修改為') or row.get('修改後') or ''
             note = row.get('note') or row.get('NOTE') or row.get('備註') or ''
             if find and repl:
-                instructions.append({'lang_code': lang, 'find': find, 'replace': repl, 'note': note, 'mark_red': True})
+                instructions.append({'lang_code': lang.strip().upper(), 'find': find, 'replace': repl, 'note': note, 'mark_red': True})
 
         return jsonify({'ok': True, 'instructions': instructions, 'count': len(instructions)})
     except Exception as e:
@@ -581,7 +647,7 @@ def api_patch_upload_pdf():
 @app.route('/api/patch/run', methods=['POST'])
 def api_patch_run():
     """
-    執行 IDML 修正。
+    執行單檔 IDML 修正。
     Body: { tmp_id, instructions: [...] }
     回傳: { ok, changes, not_found, idml_file, excel_file }
     """
@@ -603,7 +669,7 @@ def api_patch_run():
         result = patch_idml(idml_path, instructions, out_idml, out_excel)
         layout = extract_layout(out_idml)
         return jsonify({
-            'ok': True,
+            'ok':         True,
             'changes':    result['changes'],
             'not_found':  result['not_found'],
             'idml_file':  f'{base_name}_MARKED_{run_id}.idml',
@@ -614,6 +680,115 @@ def api_patch_run():
     except Exception as e:
         import traceback
         return jsonify({'ok': False, 'error': str(e), 'detail': traceback.format_exc()}), 500
+
+
+@app.route('/api/patch/run-batch', methods=['POST'])
+def api_patch_run_batch():
+    """
+    執行多語言 IDML 批次修正。
+    Body: {
+        files: [{ tmp_id, original_filename, lang_code }, ...],
+        instructions: [{ lang_code, find, replace, note, mark_red, mark_green, mark_orange, exact_match }, ...]
+    }
+    """
+    data         = request.json or {}
+    file_list    = data.get('files', [])
+    instructions = data.get('instructions', [])
+
+    if not file_list:
+        return jsonify({'ok': False, 'error': '請先上傳至少一個 IDML 檔案'}), 400
+    if not instructions:
+        return jsonify({'ok': False, 'error': '請先上傳修改指示'}), 400
+
+    batch_id = uuid.uuid4().hex[:8]
+    results = []
+    output_files_to_zip = []
+    total_applied = 0
+    total_not_found = 0
+
+    for item in file_list:
+        tmp_id    = item.get('tmp_id', '')
+        orig_name = item.get('original_filename') or item.get('filename') or 'document.idml'
+        lang_code = (item.get('lang_code') or '').strip().upper()
+
+        idml_path = os.path.join(UPLOAD_DIR, f'patch_{tmp_id}.idml')
+        if not os.path.exists(idml_path):
+            results.append({
+                'original_filename': orig_name,
+                'lang_code':         lang_code,
+                'ok':                False,
+                'error':             f'找不到暫存檔案 {orig_name}'
+            })
+            continue
+
+        # 篩選適用於該語言的指示（若指示的 lang_code 符合，或為空 / 'ALL' / '全部'）
+        matched_instr = []
+        for instr in instructions:
+            instr_lang = (instr.get('lang_code') or '').strip().upper()
+            if not instr_lang or instr_lang in ('ALL', '全部') or instr_lang == lang_code:
+                matched_instr.append(instr)
+
+        base_name     = os.path.splitext(orig_name)[0]
+        file_run_id   = uuid.uuid4().hex[:8]
+        out_idml_name = f'{base_name}_MARKED_{file_run_id}.idml'
+        out_excel_name = f'{base_name}_report_{file_run_id}.xlsx'
+        out_idml      = os.path.join(OUTPUT_DIR, out_idml_name)
+        out_excel     = os.path.join(OUTPUT_DIR, out_excel_name)
+
+        try:
+            res = patch_idml(idml_path, matched_instr, out_idml, out_excel)
+            applied   = len(res.get('changes', []))
+            not_found = len(res.get('not_found', []))
+            total_applied   += applied
+            total_not_found += not_found
+
+            output_files_to_zip.append((out_idml, out_idml_name))
+            output_files_to_zip.append((out_excel, out_excel_name))
+
+            results.append({
+                'ok':                         True,
+                'tmp_id':                     tmp_id,
+                'original_filename':          orig_name,
+                'lang_code':                  lang_code,
+                'idml_file':                  out_idml_name,
+                'excel_file':                 out_excel_name,
+                'run_id':                     file_run_id,
+                'applied':                    applied,
+                'not_found':                  not_found,
+                'matched_instructions_count': len(matched_instr),
+                'changes':                    res.get('changes', []),
+                'not_found_list':             res.get('not_found', []),
+            })
+        except Exception as e:
+            import traceback
+            results.append({
+                'ok':                False,
+                'tmp_id':            tmp_id,
+                'original_filename': orig_name,
+                'lang_code':         lang_code,
+                'error':             str(e),
+                'detail':            traceback.format_exc()
+            })
+
+    # 打包成 ZIP
+    zip_name = f'OM_BATCH_PATCH_{batch_id}.zip'
+    zip_path = os.path.join(OUTPUT_DIR, zip_name)
+    try:
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for fpath, arcname in output_files_to_zip:
+                if os.path.exists(fpath):
+                    zf.write(fpath, arcname=arcname)
+    except Exception as e:
+        zip_name = None
+
+    return jsonify({
+        'ok':              True,
+        'batch_id':        batch_id,
+        'zip_file':        zip_name,
+        'total_applied':   total_applied,
+        'total_not_found': total_not_found,
+        'results':         results,
+    })
 
 
 @app.route('/api/patch/verify', methods=['POST'])
@@ -745,7 +920,9 @@ def api_patch_download(filename):
     mime = (
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         if ext == 'xlsx' else (
-            'application/pdf' if ext == 'pdf' else 'application/octet-stream'
+            'application/pdf' if ext == 'pdf' else (
+                'application/zip' if ext == 'zip' else 'application/octet-stream'
+            )
         )
     )
     return send_file(path, as_attachment=True, download_name=filename, mimetype=mime)
